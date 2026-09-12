@@ -59,6 +59,8 @@
 | **MN-10** | In-Meeting AI Q&A ("Ask the Meeting") | 📋 `PLANNED` | Medium | Ask questions about past points in the meeting without interrupting the recording. |
 | **MN-11** | Full Audio Playback & Replay Engine | ✅ `DONE` | High | Listen to recorded meetings again and again with play/pause, seekable waveform timeline, variable playback speed (1x, 1.25x, 1.5x, 2x), and audio file download (.webm). |
 | **MN-12** | Past Meetings Archive Drawer | ✅ `DONE` | High | Searchable list of all recorded meetings to reload transcripts, review executive summaries, and re-listen to audio recordings anytime. |
+| **MN-13** | Visual Video Recording & HD Theater Player | ✅ `DONE` | High | Capture visual video alongside mixed audio for Google Meet / Zoom tabs and screens. Watch recorded meeting video with custom scrubber, speed controls, fullscreen, and video download (.webm). |
+| **MN-14** | Live Screen / Tab Capture Monitor | ✅ `DONE` | High | Real-time live picture-in-picture monitor showing active tab/screen feed, audio level meter, and elapsed recording timer. |
 
 ---
 

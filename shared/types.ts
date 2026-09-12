@@ -87,6 +87,8 @@ export interface MeetingSession {
   status: 'recording' | 'paused' | 'completed';
   audioSource: 'microphone' | 'tab' | 'both';
   audioUrl?: string;
+  videoUrl?: string;
+  hasVideo?: boolean;
   transcript: MeetingTranscriptEntry[];
   summary?: MeetingSummary;
 }

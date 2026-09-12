@@ -56,8 +56,10 @@ export const App: React.FC = () => {
     }
   });
 
-  // Meeting State & History (Playback Feature)
+  // Meeting State & History (Playback Feature & Video Capture)
   const [currentMeeting, setCurrentMeeting] = useState<MeetingSession | null>(null);
+  const currentMeetingRef = useRef<MeetingSession | null>(null);
+  const [meetingLiveStream, setMeetingLiveStream] = useState<MediaStream | null>(null);
   const [pastMeetings, setPastMeetings] = useState<MeetingSession[]>(() => {
     try {
       const saved = localStorage.getItem('rvoice_past_meetings');
@@ -67,6 +69,10 @@ export const App: React.FC = () => {
     }
   });
   const [isSummarizingMeeting, setIsSummarizingMeeting] = useState<boolean>(false);
+
+  useEffect(() => {
+    currentMeetingRef.current = currentMeeting;
+  }, [currentMeeting]);
 
   // Settings Modal & Voices
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
@@ -346,14 +352,19 @@ export const App: React.FC = () => {
     });
   };
 
-  // Meeting Handlers with Audio Recording & Replay
+  // Meeting Handlers with Full Video & Audio Recording & Replay
   const handleStartMeeting = async (title: string, source: 'microphone' | 'tab' | 'both') => {
     try {
-      if (source === 'tab') {
-        await audioManagerRef.current?.startTabAudio(true);
-      } else {
-        await audioManagerRef.current?.startMicrophone(true);
+      const stream = await audioManagerRef.current?.startMeetingRecording(source, () => {
+        // Callback if user clicks native Chrome "Stop sharing" button
+        if (currentMeetingRef.current && currentMeetingRef.current.status === 'recording') {
+          handleStopMeeting(currentMeetingRef.current.id);
+        }
+      });
+      if (stream) {
+        setMeetingLiveStream(stream);
       }
+
       recognizerRef.current?.start();
       setIsMicActive(true);
       setOrbState('meeting');
@@ -369,19 +380,23 @@ export const App: React.FC = () => {
   };
 
   const handleStopMeeting = async (meetingId: string) => {
-    const audioUrl = await audioManagerRef.current?.stopMeetingRecording();
+    const mediaResult = await audioManagerRef.current?.stopMeetingRecording();
     audioManagerRef.current?.stopAll();
     recognizerRef.current?.stop();
     setIsMicActive(false);
     setOrbState('idle');
+    setMeetingLiveStream(null);
 
-    if (currentMeeting) {
+    const activeMeeting = currentMeetingRef.current || currentMeeting;
+    if (activeMeeting) {
       const updatedMeeting: MeetingSession = {
-        ...currentMeeting,
+        ...activeMeeting,
         status: 'completed',
         endedAt: Date.now(),
-        durationSeconds: Math.floor((Date.now() - currentMeeting.startedAt) / 1000),
-        audioUrl: audioUrl || currentMeeting.audioUrl
+        durationSeconds: Math.floor((Date.now() - activeMeeting.startedAt) / 1000),
+        audioUrl: mediaResult?.mediaUrl || activeMeeting.audioUrl,
+        videoUrl: mediaResult?.hasVideo ? mediaResult.mediaUrl : activeMeeting.videoUrl,
+        hasVideo: mediaResult ? mediaResult.hasVideo : activeMeeting.hasVideo
       };
       setCurrentMeeting(updatedMeeting);
 
@@ -520,6 +535,7 @@ export const App: React.FC = () => {
             isSummarizing={isSummarizingMeeting}
             onExportMarkdown={handleExportMarkdown}
             audioLevel={audioLevel}
+            liveStream={meetingLiveStream}
           />
         )}
       </main>
