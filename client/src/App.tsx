@@ -444,12 +444,13 @@ export const App: React.FC = () => {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         status={lmStatus}
-        onUpdateEndpoint={(url) => {
-          fetch('/api/lmstudio/config', {
+        onUpdateProvider={(prov, url) => {
+          wsClientRef.current?.send({ type: 'SET_PROVIDER', provider: prov, endpoint: url });
+          fetch('/api/llm/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ endpoint: url })
-          }).then(() => wsClientRef.current?.send({ type: 'CHECK_LM_STUDIO' }));
+            body: JSON.stringify({ provider: prov, endpoint: url })
+          }).then(() => wsClientRef.current?.send({ type: 'CHECK_LLM_STATUS' }));
         }}
         voices={availableVoices}
         selectedVoice={selectedVoice}
@@ -462,7 +463,7 @@ export const App: React.FC = () => {
           setVadSensitivity(val);
           audioManagerRef.current?.setThreshold(val);
         }}
-        onRefreshLMStudio={() => wsClientRef.current?.send({ type: 'CHECK_LM_STUDIO' })}
+        onRefreshLLM={() => wsClientRef.current?.send({ type: 'CHECK_LLM_STATUS' })}
       />
     </div>
   );

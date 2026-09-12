@@ -12,7 +12,9 @@ import { SentenceChunker } from './services/sentenceChunker.js';
 dotenv.config();
 
 const PORT = process.env.PORT || 3001;
+const DEFAULT_PROVIDER = (process.env.LLM_PROVIDER as any) || 'lmstudio';
 const LM_STUDIO_URL = process.env.LM_STUDIO_URL || 'http://localhost:1234/v1';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 
 const app = express();
 app.use(cors());
@@ -21,8 +23,8 @@ app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-// Initialize Core Services
-const lmStudioService = new LMStudioService(LM_STUDIO_URL);
+// Initialize Core Services with multi-provider (LM Studio & Ollama)
+const lmStudioService = new LMStudioService(DEFAULT_PROVIDER, DEFAULT_PROVIDER === 'ollama' ? OLLAMA_URL : LM_STUDIO_URL);
 const meetingService = new MeetingService(lmStudioService);
 
 // REST API Endpoints
@@ -30,20 +32,44 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now(), service: 'RVoice Proton Gateway' });
 });
 
+app.get('/api/llm/status', async (req, res) => {
+  const status = await lmStudioService.getStatus();
+  res.json(status);
+});
+
+// Backward compatibility endpoint
 app.get('/api/lmstudio/status', async (req, res) => {
   const status = await lmStudioService.getStatus();
   res.json(status);
 });
 
-app.post('/api/lmstudio/config', (req, res) => {
-  const { endpoint, activeModel } = req.body;
-  if (endpoint) {
-    lmStudioService.setBaseUrl(endpoint);
+app.post('/api/llm/config', (req, res) => {
+  const { provider, endpoint, activeModel } = req.body;
+  if (provider) {
+    lmStudioService.setProvider(provider, endpoint);
+  } else if (endpoint) {
+    lmStudioService.setEndpoint(endpoint);
   }
   if (activeModel) {
     lmStudioService.setActiveModel(activeModel);
   }
-  res.json({ success: true, endpoint: lmStudioService.getBaseUrl() });
+  res.json({
+    success: true,
+    provider: lmStudioService.getProvider(),
+    endpoint: lmStudioService.getActiveEndpoint(),
+    activeModel: lmStudioService.getActiveModel()
+  });
+});
+
+app.post('/api/lmstudio/config', (req, res) => {
+  const { endpoint, activeModel } = req.body;
+  if (endpoint) {
+    lmStudioService.setEndpoint(endpoint);
+  }
+  if (activeModel) {
+    lmStudioService.setActiveModel(activeModel);
+  }
+  res.json({ success: true, endpoint: lmStudioService.getActiveEndpoint() });
 });
 
 app.get('/api/meetings', (req, res) => {
@@ -82,9 +108,10 @@ wss.on('connection', (ws: WebSocket) => {
   // Welcome message
   send({ type: 'CONNECTED', clientId });
 
-  // Push immediate LM Studio status
+  // Push immediate LLM provider status
   lmStudioService.getStatus().then(status => {
     send({ type: 'LM_STUDIO_STATUS', status });
+    send({ type: 'LLM_STATUS', status });
   });
 
   // Track active client message ID for barge-in aborts
@@ -96,9 +123,19 @@ wss.on('connection', (ws: WebSocket) => {
       const msg = JSON.parse(raw.toString()) as ClientMessage;
 
       switch (msg.type) {
+        case 'CHECK_LLM_STATUS':
         case 'CHECK_LM_STUDIO': {
           const status = await lmStudioService.getStatus();
           send({ type: 'LM_STUDIO_STATUS', status });
+          send({ type: 'LLM_STATUS', status });
+          break;
+        }
+
+        case 'SET_PROVIDER': {
+          lmStudioService.setProvider(msg.provider, msg.endpoint);
+          const status = await lmStudioService.getStatus();
+          send({ type: 'LM_STUDIO_STATUS', status });
+          send({ type: 'LLM_STATUS', status });
           break;
         }
 
@@ -106,11 +143,12 @@ wss.on('connection', (ws: WebSocket) => {
           lmStudioService.setActiveModel(msg.model);
           const status = await lmStudioService.getStatus();
           send({ type: 'LM_STUDIO_STATUS', status });
+          send({ type: 'LLM_STATUS', status });
           break;
         }
 
         case 'INTERRUPT': {
-          // Zero-Latency Barge-In: Abort ongoing LM Studio generation instantly
+          // Zero-Latency Barge-In: Abort ongoing model generation instantly
           console.log(`[Barge-In] Interrupt received from client ${clientId}`);
           if (activeMessageId) {
             lmStudioService.abort(activeMessageId);
@@ -128,7 +166,7 @@ wss.on('connection', (ws: WebSocket) => {
           sentenceChunker.setVoiceMode(isVoice);
           sentenceChunker.reset();
 
-          console.log(`[Prompt] Mode: ${msg.mode} | Persona: ${msg.persona || 'executive'} | Prompt: "${msg.prompt.slice(0, 60)}..."`);
+          console.log(`[Prompt] Provider: ${lmStudioService.getProvider()} | Mode: ${msg.mode} | Persona: ${msg.persona || 'executive'} | Prompt: "${msg.prompt.slice(0, 60)}..."`);
 
           await lmStudioService.streamCompletion(
             messageId,
@@ -137,10 +175,8 @@ wss.on('connection', (ws: WebSocket) => {
             msg.persona,
             {
               onToken: (token) => {
-                // Send raw token for real-time text/kinetic display
                 send({ type: 'TOKEN_STREAM', token, messageId });
 
-                // If voice mode, chunk into complete sentences for live audio synthesis
                 if (isVoice) {
                   const sentences = sentenceChunker.push(token);
                   for (const s of sentences) {
@@ -160,8 +196,8 @@ wss.on('connection', (ws: WebSocket) => {
                 activeMessageId = null;
               },
               onError: (err) => {
-                console.error(`[LM Studio Error]`, err.message);
-                send({ type: 'ERROR', message: `LM Studio generation error: ${err.message}` });
+                console.error(`[LLM Error]`, err.message);
+                send({ type: 'ERROR', message: `LLM generation error (${lmStudioService.getProvider()}): ${err.message}` });
                 activeMessageId = null;
               }
             },
@@ -224,5 +260,5 @@ wss.on('connection', (ws: WebSocket) => {
 server.listen(PORT, () => {
   console.log(`⚡ [RVoice Proton Gateway] Server running on http://localhost:${PORT}`);
   console.log(`📡 [WebSocket] Listening on ws://localhost:${PORT}/ws`);
-  console.log(`🧠 [LM Studio Gateway] Targeted at ${LM_STUDIO_URL}`);
+  console.log(`🧠 [LLM Gateway] Active Provider: ${lmStudioService.getProvider()} @ ${lmStudioService.getActiveEndpoint()}`);
 });

@@ -1,4 +1,11 @@
-import { AppMode, AssistantPersona, LatencyMetrics, LMStudioStatus, ModelInfo } from '../../../shared/types.js';
+import {
+  AppMode,
+  AssistantPersona,
+  LatencyMetrics,
+  LLMProvider,
+  LLMProviderStatus,
+  ModelInfo
+} from '../../../shared/types.js';
 
 export interface StreamCallbacks {
   onToken: (token: string) => void;
@@ -8,35 +15,87 @@ export interface StreamCallbacks {
 }
 
 export class LMStudioService {
-  private baseUrl: string;
+  private provider: LLMProvider = 'lmstudio';
+  private lmStudioUrl: string = 'http://localhost:1234/v1';
+  private ollamaUrl: string = 'http://localhost:11434';
+  private customUrl: string = 'http://localhost:1234/v1';
   private activeModel: string | null = null;
   private activeControllers: Map<string, AbortController> = new Map();
 
-  constructor(baseUrl: string = 'http://localhost:1234/v1') {
-    this.baseUrl = baseUrl.replace(/\/+$/, '');
+  constructor(defaultProvider: LLMProvider = 'lmstudio', defaultUrl?: string) {
+    this.provider = defaultProvider;
+    if (defaultUrl) {
+      if (defaultProvider === 'ollama') this.ollamaUrl = defaultUrl.replace(/\/+$/, '');
+      else if (defaultProvider === 'lmstudio') this.lmStudioUrl = defaultUrl.replace(/\/+$/, '');
+      else this.customUrl = defaultUrl.replace(/\/+$/, '');
+    }
   }
 
-  public setBaseUrl(url: string) {
-    this.baseUrl = url.replace(/\/+$/, '');
+  public setProvider(provider: LLMProvider, endpoint?: string) {
+    this.provider = provider;
+    this.activeModel = null;
+    if (endpoint) {
+      const clean = endpoint.replace(/\/+$/, '');
+      if (provider === 'ollama') this.ollamaUrl = clean;
+      else if (provider === 'lmstudio') this.lmStudioUrl = clean;
+      else this.customUrl = clean;
+    }
   }
 
-  public getBaseUrl(): string {
-    return this.baseUrl;
+  public getProvider(): LLMProvider {
+    return this.provider;
+  }
+
+  public getActiveEndpoint(): string {
+    if (this.provider === 'ollama') return this.ollamaUrl;
+    if (this.provider === 'custom') return this.customUrl;
+    return this.lmStudioUrl;
+  }
+
+  public setEndpoint(url: string) {
+    const clean = url.replace(/\/+$/, '');
+    if (this.provider === 'ollama') this.ollamaUrl = clean;
+    else if (this.provider === 'custom') this.customUrl = clean;
+    else this.lmStudioUrl = clean;
   }
 
   public setActiveModel(modelId: string) {
     this.activeModel = modelId;
   }
 
+  public getActiveModel(): string | null {
+    return this.activeModel;
+  }
+
   /**
-   * Probes LM Studio to check connection and retrieve currently loaded models.
+   * Returns the OpenAI-compatible v1 base endpoint for the active provider.
    */
-  public async getStatus(): Promise<LMStudioStatus> {
+  private getV1Endpoint(): string {
+    const raw = this.getActiveEndpoint();
+    if (this.provider === 'ollama') {
+      // If user provided http://localhost:11434 without /v1, append /v1 for OpenAI endpoints
+      return raw.endsWith('/v1') ? raw : `${raw}/v1`;
+    }
+    return raw.endsWith('/v1') ? raw : `${raw}/v1`;
+  }
+
+  /**
+   * Probes active provider (LM Studio or Ollama) to check connection and retrieve models.
+   */
+  public async getStatus(): Promise<LLMProviderStatus> {
+    const endpoint = this.getActiveEndpoint();
+
+    if (this.provider === 'ollama') {
+      return this.getOllamaStatus();
+    }
+
+    // LM Studio / OpenAI-compatible provider
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-      const response = await fetch(`${this.baseUrl}/models`, {
+      const v1 = this.getV1Endpoint();
+      const response = await fetch(`${v1}/models`, {
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -44,8 +103,9 @@ export class LMStudioService {
 
       if (!response.ok) {
         return {
+          provider: this.provider,
           connected: false,
-          endpoint: this.baseUrl,
+          endpoint,
           models: [],
           activeModel: null,
           error: `HTTP ${response.status}: ${response.statusText}`
@@ -60,15 +120,17 @@ export class LMStudioService {
       }
 
       return {
+        provider: this.provider,
         connected: true,
-        endpoint: this.baseUrl,
+        endpoint,
         models,
         activeModel: this.activeModel
       };
     } catch (err: any) {
       return {
+        provider: this.provider,
         connected: false,
-        endpoint: this.baseUrl,
+        endpoint,
         models: [],
         activeModel: null,
         error: err.name === 'AbortError' ? 'Connection timed out' : err.message || 'Cannot reach LM Studio'
@@ -77,8 +139,82 @@ export class LMStudioService {
   }
 
   /**
-   * Generates the appropriate system prompt based on mode and assistant persona.
+   * Probes Ollama via /api/tags or /v1/models
    */
+  private async getOllamaStatus(): Promise<LLMProviderStatus> {
+    const endpoint = this.ollamaUrl;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+      // Try Ollama native /api/tags first
+      const baseOllama = endpoint.replace(/\/v1$/, '');
+      const response = await fetch(`${baseOllama}/api/tags`, {
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = (await response.json()) as { models?: Array<{ name: string; model?: string; size?: number }> };
+        const rawModels = data.models || [];
+        const models: ModelInfo[] = rawModels.map(m => ({
+          id: m.name,
+          name: m.name,
+          object: 'model',
+          size: m.size
+        }));
+
+        if (!this.activeModel && models.length > 0) {
+          this.activeModel = models[0].id;
+        }
+
+        return {
+          provider: 'ollama',
+          connected: true,
+          endpoint,
+          models,
+          activeModel: this.activeModel
+        };
+      }
+
+      // Fallback to /v1/models
+      const v1Res = await fetch(`${this.getV1Endpoint()}/models`);
+      if (v1Res.ok) {
+        const data = (await v1Res.json()) as { data?: ModelInfo[] };
+        const models = data.data || [];
+        if (!this.activeModel && models.length > 0) {
+          this.activeModel = models[0].id;
+        }
+        return {
+          provider: 'ollama',
+          connected: true,
+          endpoint,
+          models,
+          activeModel: this.activeModel
+        };
+      }
+
+      return {
+        provider: 'ollama',
+        connected: false,
+        endpoint,
+        models: [],
+        activeModel: null,
+        error: `Ollama returned HTTP ${response.status}`
+      };
+    } catch (err: any) {
+      return {
+        provider: 'ollama',
+        connected: false,
+        endpoint,
+        models: [],
+        activeModel: null,
+        error: err.name === 'AbortError' ? 'Ollama connection timed out' : err.message || 'Cannot reach Ollama on port 11434'
+      };
+    }
+  }
+
   public getSystemPrompt(mode: AppMode, persona: AssistantPersona = 'executive'): string {
     if (mode === 'voice') {
       return `You are RVoice Proton, an ultra-fast, intelligent, and articulate voice assistant.
@@ -105,7 +241,7 @@ You analyze meeting transcripts to extract high-leverage insights, decisions, an
   }
 
   /**
-   * Streams a response from LM Studio with SSE, sentence chunking, and latency profiling.
+   * Streams a response from active provider (LM Studio or Ollama) with SSE and latency profiling.
    */
   public async streamCompletion(
     messageId: string,
@@ -118,8 +254,9 @@ You analyze meeting transcripts to extract high-leverage insights, decisions, an
     const controller = new AbortController();
     this.activeControllers.set(messageId, controller);
 
-    const modelToUse = customModel || this.activeModel || 'local-model';
+    const modelToUse = customModel || this.activeModel || (this.provider === 'ollama' ? 'llama3:latest' : 'local-model');
     const systemPrompt = this.getSystemPrompt(mode, persona);
+    const v1 = this.getV1Endpoint();
 
     const startTime = Date.now();
     let ttftTime: number | undefined;
@@ -127,7 +264,7 @@ You analyze meeting transcripts to extract high-leverage insights, decisions, an
     let fullText = '';
 
     try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await fetch(`${v1}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -146,7 +283,7 @@ You analyze meeting transcripts to extract high-leverage insights, decisions, an
       });
 
       if (!response.ok || !response.body) {
-        throw new Error(`LM Studio HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`${this.provider.toUpperCase()} HTTP ${response.status}: ${response.statusText}`);
       }
 
       const reader = response.body.getReader();
@@ -195,8 +332,7 @@ You analyze meeting transcripts to extract high-leverage insights, decisions, an
       callbacks.onComplete(fullText, metrics);
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        // Barge-in or manual cancel
-        return;
+        return; // Barge-in interruption
       }
       callbacks.onError(err);
     } finally {
@@ -204,9 +340,6 @@ You analyze meeting transcripts to extract high-leverage insights, decisions, an
     }
   }
 
-  /**
-   * Instantly aborts an in-flight generation (used for barge-in interruption).
-   */
   public abort(messageId?: string) {
     if (messageId) {
       const controller = this.activeControllers.get(messageId);
@@ -215,8 +348,7 @@ You analyze meeting transcripts to extract high-leverage insights, decisions, an
         this.activeControllers.delete(messageId);
       }
     } else {
-      // Abort all in-flight generations
-      for (const [id, controller] of this.activeControllers.entries()) {
+      for (const [, controller] of this.activeControllers.entries()) {
         controller.abort();
       }
       this.activeControllers.clear();

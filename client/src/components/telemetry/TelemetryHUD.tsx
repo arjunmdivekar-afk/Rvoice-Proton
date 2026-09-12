@@ -54,7 +54,9 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
       >
         <div className={`status-dot ${isConnected ? 'connected' : ''}`} />
         <span style={{ fontWeight: 600, color: isConnected ? '#34d399' : '#fda4af' }}>
-          {isConnected ? 'LM Studio Local' : 'LM Studio Offline'}
+          {isConnected
+            ? `${status?.provider === 'ollama' ? 'Ollama' : 'LM Studio'} Local`
+            : `${status?.provider === 'ollama' ? 'Ollama' : 'LM Studio'} Offline`}
         </span>
       </div>
 

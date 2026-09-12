@@ -116,6 +116,7 @@ export class WSClient {
         this.emit('connected', msg.clientId);
         break;
       case 'LM_STUDIO_STATUS':
+      case 'LLM_STATUS':
         this.emit('lmStudioStatus', msg.status);
         break;
       case 'TOKEN_STREAM':

@@ -4,19 +4,27 @@ export type AppMode = 'voice' | 'codestudio' | 'meeting';
 
 export type AssistantPersona = 'executive' | 'companion' | 'tutor' | 'creative';
 
+export type LLMProvider = 'lmstudio' | 'ollama' | 'custom';
+
 export interface ModelInfo {
   id: string;
-  object: string;
+  name?: string;
+  object?: string;
   owned_by?: string;
+  size?: number;
 }
 
-export interface LMStudioStatus {
+export interface LLMProviderStatus {
+  provider: LLMProvider;
   connected: boolean;
   endpoint: string;
   models: ModelInfo[];
   activeModel: string | null;
   error?: string;
 }
+
+// Backward compatibility alias
+export type LMStudioStatus = LLMProviderStatus;
 
 export interface LatencyMetrics {
   vadMs?: number;
@@ -88,17 +96,20 @@ export type ClientMessage =
   | { type: 'TEXT_PROMPT'; prompt: string; mode: AppMode; persona?: AssistantPersona; model?: string }
   | { type: 'INTERRUPT' } // Barge-in signal
   | { type: 'SET_MODE'; mode: AppMode }
+  | { type: 'SET_PROVIDER'; provider: LLMProvider; endpoint?: string }
   | { type: 'SET_MODEL'; model: string }
   | { type: 'START_MEETING'; title: string; audioSource: 'microphone' | 'tab' | 'both' }
   | { type: 'STOP_MEETING'; meetingId: string }
   | { type: 'ADD_MEETING_TRANSCRIPT'; meetingId: string; entry: Omit<MeetingTranscriptEntry, 'id'> }
   | { type: 'SUMMARIZE_MEETING'; meetingId: string; model?: string }
-  | { type: 'CHECK_LM_STUDIO' };
+  | { type: 'CHECK_LM_STUDIO' }
+  | { type: 'CHECK_LLM_STATUS' };
 
 // WebSocket server-to-client messages
 export type ServerMessage =
   | { type: 'CONNECTED'; clientId: string }
-  | { type: 'LM_STUDIO_STATUS'; status: LMStudioStatus }
+  | { type: 'LM_STUDIO_STATUS'; status: LLMProviderStatus }
+  | { type: 'LLM_STATUS'; status: LLMProviderStatus }
   | { type: 'TOKEN_STREAM'; token: string; messageId: string }
   | { type: 'TTS_CHUNK'; text: string; messageId: string; isFinal: boolean }
   | { type: 'GENERATION_COMPLETE'; messageId: string; fullContent: string; metrics: LatencyMetrics }
