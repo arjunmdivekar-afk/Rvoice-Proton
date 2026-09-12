@@ -42,3 +42,5 @@ server/storage/
 *.wav
 *.mp3
 *.webm
+*.exe
+certs/mkcert.exe
