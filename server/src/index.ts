@@ -50,7 +50,7 @@ app.get('/api/network/info', (req, res) => {
     primaryIp,
     allIps: addresses,
     port: 3344,
-    networkUrl: `http://${primaryIp}:3344`,
+    networkUrl: `https://${primaryIp}:3344`,
     isHosted: true
   });
 });

@@ -53,6 +53,12 @@ export class AudioManager {
    * Starts microphone recording with acoustic echo cancellation and noise suppression.
    */
   public async startMicrophone(recordToFile = false): Promise<MediaStream> {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error(
+        `Microphone access over WiFi requires HTTPS or localhost in modern browsers. Please access via https://${window.location.host} or http://localhost:3344.`
+      );
+    }
+
     const ctx = await this.initAudioContext();
 
     this.micStream = await navigator.mediaDevices.getUserMedia({
