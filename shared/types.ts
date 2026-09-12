@@ -49,9 +49,18 @@ export interface ChatMessage {
   metrics?: LatencyMetrics;
 }
 
+export interface MeetingParticipant {
+  id: string;
+  name: string;
+  color: string;
+  talkTimeSeconds: number;
+  talkPercentage: number;
+}
+
 export interface MeetingTranscriptEntry {
   id: string;
   speaker: string;
+  speakerId?: string;
   text: string;
   timestamp: number; // Seconds from start of meeting
   bookmarked?: boolean;
@@ -76,6 +85,8 @@ export interface MeetingSummary {
   actionItems: MeetingActionItem[];
   keyTopics: string[];
   sentiment?: string;
+  followUpEmail?: string;
+  speakerContributions?: { speaker: string; contribution: string }[];
 }
 
 export interface MeetingSession {
@@ -90,6 +101,7 @@ export interface MeetingSession {
   videoUrl?: string;
   hasVideo?: boolean;
   transcript: MeetingTranscriptEntry[];
+  participants?: MeetingParticipant[];
   summary?: MeetingSummary;
 }
 
@@ -112,7 +124,9 @@ export type ClientMessage =
   | { type: 'START_MEETING'; title: string; audioSource: 'microphone' | 'tab' | 'both' }
   | { type: 'STOP_MEETING'; meetingId: string; hasVideo?: boolean }
   | { type: 'ADD_MEETING_TRANSCRIPT'; meetingId: string; entry: Omit<MeetingTranscriptEntry, 'id'> }
-  | { type: 'SUMMARIZE_MEETING'; meetingId: string; model?: string }
+  | { type: 'UPDATE_MEETING_TRANSCRIPT'; meetingId: string; entries: MeetingTranscriptEntry[] }
+  | { type: 'UPDATE_PARTICIPANTS'; meetingId: string; participants: MeetingParticipant[] }
+  | { type: 'SUMMARIZE_MEETING'; meetingId: string; model?: string; style?: 'executive' | 'detailed' | 'action_items' | 'email' }
   | { type: 'CHECK_LM_STUDIO' }
   | { type: 'CHECK_LLM_STATUS' };
 

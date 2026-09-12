@@ -432,12 +432,13 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleSummarizeMeeting = (meetingId: string) => {
+  const handleSummarizeMeeting = (meetingId: string, style?: 'executive' | 'detailed' | 'action_items' | 'email') => {
     setIsSummarizingMeeting(true);
     wsClientRef.current?.send({
       type: 'SUMMARIZE_MEETING',
       meetingId,
-      model: lmStatus?.activeModel || undefined
+      model: lmStatus?.activeModel || undefined,
+      style: style || 'executive'
     });
   };
 
@@ -516,18 +517,18 @@ export const App: React.FC = () => {
       <main className="main-viewport">
         {currentMode === 'voice' && (
           <VoiceAssistantHUD
-            orbState={orbState}
             audioLevel={audioLevel}
             frequencies={frequencies}
             isMicActive={isMicActive}
             onToggleMic={handleToggleMic}
             onInterrupt={handleInterrupt}
+            orbState={orbState}
             persona={assistantPersona}
             onSelectPersona={(p) => setAssistantPersona(p)}
-            messages={voiceMessages}
             interimTranscript={interimTranscript}
             streamingAssistantText={streamingAssistantText}
-            onRepeatAudio={(txt) => synthesizerRef.current?.speak(txt)}
+            messages={voiceMessages}
+            onRepeatAudio={(text) => synthesizerRef.current?.speak(text)}
             onNewChat={handleNewChat}
             conversations={voiceConversations}
             onSelectConversation={handleSelectConversation}
@@ -552,6 +553,8 @@ export const App: React.FC = () => {
             onStartMeeting={handleStartMeeting}
             onStopMeeting={handleStopMeeting}
             onAddTranscript={(id, entry) => wsClientRef.current?.send({ type: 'ADD_MEETING_TRANSCRIPT', meetingId: id, entry })}
+            onUpdateTranscript={(id, entries) => wsClientRef.current?.send({ type: 'UPDATE_MEETING_TRANSCRIPT', meetingId: id, entries })}
+            onUpdateParticipants={(id, participants) => wsClientRef.current?.send({ type: 'UPDATE_PARTICIPANTS', meetingId: id, participants })}
             onSummarizeMeeting={handleSummarizeMeeting}
             isSummarizing={isSummarizingMeeting}
             onExportMarkdown={handleExportMarkdown}

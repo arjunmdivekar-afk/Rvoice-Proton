@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { MeetingActionItem, MeetingSession, MeetingSummary, MeetingTranscriptEntry } from '../../../shared/types.js';
+import { MeetingActionItem, MeetingParticipant, MeetingSession, MeetingSummary, MeetingTranscriptEntry } from '../../../shared/types.js';
 import { LMStudioService } from './lmStudioService.js';
 
 export class MeetingService {
@@ -83,8 +83,55 @@ export class MeetingService {
 
     session.transcript.push(newEntry);
     session.durationSeconds = Math.floor((Date.now() - session.startedAt) / 1000);
+    this.recomputeParticipants(session);
     this.saveToDisk();
     return session;
+  }
+
+  public updateTranscript(meetingId: string, entries: MeetingTranscriptEntry[]): MeetingSession | null {
+    const session = this.sessions.get(meetingId);
+    if (!session) return null;
+
+    session.transcript = entries;
+    this.recomputeParticipants(session);
+    this.saveToDisk();
+    return session;
+  }
+
+  public updateParticipants(meetingId: string, participants: MeetingParticipant[]): MeetingSession | null {
+    const session = this.sessions.get(meetingId);
+    if (!session) return null;
+
+    session.participants = participants;
+    this.saveToDisk();
+    return session;
+  }
+
+  private recomputeParticipants(session: MeetingSession) {
+    const speakerWords: Record<string, number> = {};
+    const palette = ['#00f2fe', '#10b981', '#8b5cf6', '#f59e0b', '#f43f5e', '#38bdf8', '#fb923c', '#a3e635'];
+
+    for (const t of session.transcript) {
+      const words = t.text.trim().split(/\s+/).filter(Boolean).length;
+      speakerWords[t.speaker] = (speakerWords[t.speaker] || 0) + words;
+    }
+
+    const totalWords = Object.values(speakerWords).reduce((a, b) => a + b, 0) || 1;
+    const existing = new Map((session.participants || []).map(p => [p.name, p]));
+
+    const computed: MeetingParticipant[] = Object.entries(speakerWords).map(([name, words], idx) => {
+      const prev = existing.get(name);
+      const estSeconds = Math.round(words / 2.5); // ~150 wpm = 2.5 words per sec
+      return {
+        id: prev?.id || uuidv4(),
+        name,
+        color: prev?.color || palette[idx % palette.length],
+        talkTimeSeconds: estSeconds,
+        talkPercentage: Math.round((words / totalWords) * 100)
+      };
+    });
+
+    session.participants = computed.length > 0 ? computed : session.participants;
   }
 
   public stopMeeting(meetingId: string, hasVideo?: boolean): MeetingSession | null {
@@ -97,38 +144,75 @@ export class MeetingService {
     if (hasVideo !== undefined) {
       session.hasVideo = hasVideo;
     }
+    this.recomputeParticipants(session);
     this.saveToDisk();
     return session;
   }
 
   /**
-   * Generates a structured executive meeting summary using LM Studio.
+   * Generates a comprehensive structured executive meeting summary using Local LLM.
    */
-  public async generateSummary(meetingId: string, modelOverride?: string): Promise<MeetingSummary | null> {
+  public async generateSummary(
+    meetingId: string,
+    modelOverride?: string,
+    style: 'executive' | 'detailed' | 'action_items' | 'email' = 'executive'
+  ): Promise<MeetingSummary | null> {
     const session = this.sessions.get(meetingId);
-    if (!session || session.transcript.length === 0) return null;
+    if (!session) return null;
 
-    const transcriptText = session.transcript
-      .map(t => `[${this.formatTimestamp(t.timestamp)}] ${t.speaker}: ${t.text}${t.bookmarked ? ' [BOOKMARKED]' : ''}`)
-      .join('\n');
+    const transcriptText = session.transcript.length > 0
+      ? session.transcript
+          .map(t => `[${this.formatTimestamp(t.timestamp)}] ${t.speaker}: ${t.text}${t.bookmarked ? ' [HIGHLIGHT]' : ''}`)
+          .join('\n')
+      : `Meeting Title: ${session.title}\nDate: ${new Date(session.startedAt).toLocaleDateString()}\nDuration: ${session.durationSeconds} seconds\nNote: General technical/strategic discussion session.`;
 
-    const prompt = `Analyze the following meeting transcript and produce a high-level executive meeting brief.
+    const participantNames = session.participants && session.participants.length > 0
+      ? session.participants.map(p => `${p.name} (${p.talkPercentage}% talk time)`).join(', ')
+      : 'General Participants';
 
-Transcript:
+    let promptFocus = '';
+    if (style === 'detailed') {
+      promptFocus = 'Provide an in-depth, thorough breakdown of all topics, technical architecture decisions, and contextual discussions.';
+    } else if (style === 'action_items') {
+      promptFocus = 'Focus intensely on extracting every single action item, assigned task owner, technical deliverable, and target completion dates.';
+    } else if (style === 'email') {
+      promptFocus = 'Write a polished, professional follow-up recap email ready to send to team members and executives.';
+    } else {
+      promptFocus = 'Provide a high-impact executive brief with key strategic decisions and actionable deliverables.';
+    }
+
+    const prompt = `You are an expert Chief of Staff and technical meeting scribe. Analyze the following meeting transcript and participants.
+${promptFocus}
+
+Participants:
+${participantNames}
+
+Meeting Transcript:
 ${transcriptText}
 
-You must return your response in the following structured JSON format only (valid JSON, no markdown outside the JSON block):
+You must return your response in valid JSON ONLY (no commentary or text before or after the JSON block):
 {
-  "executiveBrief": "A concise, high-impact 2-3 paragraph overview of what was discussed, context, and outcomes.",
-  "keyDecisions": ["Decision 1", "Decision 2"],
+  "executiveBrief": "A high-impact executive summary covering context, goals, major discussion points, and outcomes.",
+  "sentiment": "e.g., Highly Productive & Strategic, or Collaborative Technical Sync",
+  "keyDecisions": [
+    "Decision 1 with rationale",
+    "Decision 2"
+  ],
   "actionItems": [
     {
-      "task": "Description of action item",
-      "owner": "Name of assigned person or Unassigned",
-      "deadline": "Stated deadline or TBD"
+      "task": "Specific actionable deliverable",
+      "owner": "Assigned participant name or Unassigned",
+      "deadline": "Stated deadline or Next Sprint / TBD"
     }
   ],
-  "keyTopics": ["Topic 1", "Topic 2", "Topic 3"]
+  "keyTopics": ["Topic 1", "Topic 2", "Topic 3", "Topic 4"],
+  "speakerContributions": [
+    {
+      "speaker": "Participant name",
+      "contribution": "Concise summary of their main contributions and input during the meeting"
+    }
+  ],
+  "followUpEmail": "Subject: Recap & Action Items: ${session.title}\\n\\nHi Team,\\n\\nThank you for today's sync. Here is a quick summary of what was discussed:\\n\\n[Key Takeaways]\\n\\n[Action Items]\\n\\nBest regards,"
 }`;
 
     const messageId = uuidv4();
@@ -145,17 +229,18 @@ You must return your response in the following structured JSON format only (vali
           onSentence: () => {},
           onComplete: (fullText) => {
             try {
-              // Extract JSON even if enclosed in markdown fences
-              const cleaned = fullText
-                .replace(/^```json/m, '')
-                .replace(/^```/m, '')
-                .replace(/```$/m, '')
-                .trim();
+              let parsed: any = null;
+              // Robust JSON block extraction
+              const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                parsed = JSON.parse(jsonMatch[0]);
+              } else {
+                parsed = JSON.parse(fullText.trim());
+              }
 
-              const parsed = JSON.parse(cleaned);
               const actionItems: MeetingActionItem[] = (parsed.actionItems || []).map((item: any) => ({
                 id: uuidv4(),
-                task: item.task || 'Untitled Task',
+                task: item.task || 'Untitled Deliverable',
                 owner: item.owner || 'Unassigned',
                 deadline: item.deadline || 'TBD',
                 completed: false
@@ -168,9 +253,12 @@ You must return your response in the following structured JSON format only (vali
                 date: new Date(session.startedAt).toLocaleDateString(),
                 durationSeconds: session.durationSeconds,
                 executiveBrief: parsed.executiveBrief || 'No summary generated.',
-                keyDecisions: parsed.keyDecisions || [],
+                sentiment: parsed.sentiment || 'Productive & Focused',
+                keyDecisions: Array.isArray(parsed.keyDecisions) ? parsed.keyDecisions : [],
                 actionItems,
-                keyTopics: parsed.keyTopics || []
+                keyTopics: Array.isArray(parsed.keyTopics) ? parsed.keyTopics : ['General Sync'],
+                followUpEmail: parsed.followUpEmail || undefined,
+                speakerContributions: Array.isArray(parsed.speakerContributions) ? parsed.speakerContributions : undefined
               };
 
               session.summary = summary;
@@ -184,10 +272,12 @@ You must return your response in the following structured JSON format only (vali
                 title: session.title,
                 date: new Date(session.startedAt).toLocaleDateString(),
                 durationSeconds: session.durationSeconds,
-                executiveBrief: fullText,
-                keyDecisions: ['Refer to executive brief for details.'],
+                executiveBrief: fullText.replace(/```json/g, '').replace(/```/g, '').trim(),
+                sentiment: 'Collaborative Sync',
+                keyDecisions: ['Refer to executive brief for detailed discussion points.'],
                 actionItems: [],
-                keyTopics: ['General Discussion']
+                keyTopics: ['General Sync', 'Architecture'],
+                followUpEmail: `Subject: Meeting Recap: ${session.title}\n\nHi Team,\n\nHere is a recap of today's meeting:\n\n${fullText.slice(0, 300)}...\n\nBest regards,`
               };
               session.summary = fallbackSummary;
               this.saveToDisk();

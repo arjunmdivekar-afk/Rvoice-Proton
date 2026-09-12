@@ -54,8 +54,8 @@
 | **MN-05** | Real-time Highlight & Bookmarking | ✅ `DONE` | High | Click or voice-command bookmarking ("Mark that down") to tag key moments during live meetings. |
 | **MN-06** | Multi-Format Export (MD, JSON, Print/PDF) | ✅ `DONE` | High | One-click export of meeting minutes, transcript, and summaries to Markdown, PDF, or clipboard. |
 | **MN-07** | Click-to-Play Interactive Transcript Sync | ✅ `DONE` | High | Click on any transcript line or timestamp to instantly jump audio playback to that exact second. |
-| **MN-08** | Speaker Tagging & Diarization | 📋 `PLANNED` | Medium | Participant labeling with color-coded speaker badges and talk-time distribution. |
-| **MN-09** | Automated Follow-up Email Generator | 📋 `PLANNED` | Medium | One-click generation of professional follow-up recap emails formatted for stakeholders. |
+| **MN-08** | Speaker Tagging & Diarization | ✅ `DONE` | Medium | Participant labeling with color-coded speaker badges, talk-time distribution bar, clickable speaker filtering, inline reassignment, and global renaming. |
+| **MN-09** | Automated Follow-up Email Generator | ✅ `DONE` | Medium | One-click generation of professional follow-up recap emails formatted for stakeholders with 1-click clipboard copy. |
 | **MN-10** | In-Meeting AI Q&A ("Ask the Meeting") | 📋 `PLANNED` | Medium | Ask questions about past points in the meeting without interrupting the recording. |
 | **MN-11** | Full Audio Playback & Replay Engine | ✅ `DONE` | High | Listen to recorded meetings again and again with play/pause, seekable waveform timeline, variable playback speed (1x, 1.25x, 1.5x, 2x), and audio file download (.webm). |
 | **MN-12** | Past Meetings Archive Drawer | ✅ `DONE` | High | Searchable list of all recorded meetings to reload transcripts, review executive summaries, and re-listen to audio recordings anytime. |

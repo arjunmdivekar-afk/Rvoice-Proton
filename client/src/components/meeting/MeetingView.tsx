@@ -2,27 +2,44 @@ import {
   Bookmark,
   Calendar,
   Check,
+  CheckCircle2,
+  ChevronDown,
   Clock,
   Copy,
   Download,
+  Edit3,
   FileText,
+  Filter,
   History,
   Layers,
+  Mail,
   Maximize2,
   Mic,
   Monitor,
   Pause,
   Play,
+  Plus,
+  Printer,
   RotateCcw,
   RotateCw,
+  Send,
+  Share2,
   Sparkles,
   Square,
+  Tag,
+  User,
+  Users,
   Video,
   Volume2,
   VolumeX
 } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
-import { MeetingActionItem, MeetingSession, MeetingTranscriptEntry } from '../../../../shared/types';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  MeetingActionItem,
+  MeetingParticipant,
+  MeetingSession,
+  MeetingTranscriptEntry
+} from '../../../../shared/types';
 
 interface MeetingViewProps {
   currentMeeting: MeetingSession | null;
@@ -31,12 +48,16 @@ interface MeetingViewProps {
   onStartMeeting: (title: string, source: 'microphone' | 'tab' | 'both') => void;
   onStopMeeting: (meetingId: string) => void;
   onAddTranscript: (meetingId: string, entry: Omit<MeetingTranscriptEntry, 'id'>) => void;
-  onSummarizeMeeting: (meetingId: string) => void;
+  onUpdateTranscript?: (meetingId: string, entries: MeetingTranscriptEntry[]) => void;
+  onUpdateParticipants?: (meetingId: string, participants: MeetingParticipant[]) => void;
+  onSummarizeMeeting: (meetingId: string, style?: 'executive' | 'detailed' | 'action_items' | 'email') => void;
   isSummarizing: boolean;
   onExportMarkdown: (meetingId: string) => void;
   audioLevel: number;
   liveStream?: MediaStream | null;
 }
+
+const SPEAKER_PALETTE = ['#00f2fe', '#10b981', '#8b5cf6', '#f59e0b', '#f43f5e', '#38bdf8', '#fb923c', '#a3e635'];
 
 export const MeetingView: React.FC<MeetingViewProps> = ({
   currentMeeting,
@@ -45,6 +66,8 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
   onStartMeeting,
   onStopMeeting,
   onAddTranscript,
+  onUpdateTranscript,
+  onUpdateParticipants,
   onSummarizeMeeting,
   isSummarizing,
   onExportMarkdown,
@@ -54,28 +77,73 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
   const [meetingTitle, setMeetingTitle] = useState('');
   const [audioSource, setAudioSource] = useState<'microphone' | 'tab' | 'both'>('tab');
   const [seconds, setSeconds] = useState(0);
-  const [copiedSummary, setCopiedSummary] = useState(false);
-  const [activeTab, setActiveTab] = useState<'transcript' | 'summary'>('transcript');
+  const [activeTab, setActiveTab] = useState<'transcript' | 'summary' | 'email'>('transcript');
+  const [summaryStyle, setSummaryStyle] = useState<'executive' | 'detailed' | 'action_items' | 'email'>('executive');
   const [actionItems, setActionItems] = useState<MeetingActionItem[]>([]);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
+
+  // Notifications / Copy States
+  const [copiedSummary, setCopiedSummary] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
 
   // Playback States (Unified Video & Audio)
   const [isPlayingMedia, setIsPlayingMedia] = useState(false);
   const [playbackCurrentTime, setPlaybackCurrentTime] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
-  const [isMuted, setIsMuted] = useState(false);
 
   // Media Player References
   const videoPlayerRef = useRef<HTMLVideoElement | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
 
+  // MN-08 Speaker Diarization & Tagging States
+  const [selectedSpeakerFilter, setSelectedSpeakerFilter] = useState<string | null>(null);
+  const [manualNoteText, setManualNoteText] = useState('');
+  const [manualSpeakerName, setManualSpeakerName] = useState('Speaker 1');
+  const [editingSpeakerEntryId, setEditingSpeakerEntryId] = useState<string | null>(null);
+  const [renameSpeakerModal, setRenameSpeakerModal] = useState<{ oldName: string; newName: string } | null>(null);
+  const [newActionItemTask, setNewActionItemTask] = useState('');
+  const [newActionItemOwner, setNewActionItemOwner] = useState('');
+
   const isRecording = currentMeeting?.status === 'recording';
   const isTabOrBoth = currentMeeting?.audioSource === 'tab' || currentMeeting?.audioSource === 'both';
   const mediaUrl = currentMeeting?.videoUrl || currentMeeting?.audioUrl;
   const hasRecording = !!mediaUrl;
   const hasVideo = !!(currentMeeting?.videoUrl || currentMeeting?.hasVideo || (isTabOrBoth && hasRecording));
+
+  // Compute Speaker Statistics & Talk-Time Distribution
+  const speakerStats = useMemo(() => {
+    if (!currentMeeting || currentMeeting.transcript.length === 0) return [];
+    const counts: Record<string, { words: number; count: number }> = {};
+
+    currentMeeting.transcript.forEach((t) => {
+      const spk = t.speaker || 'Speaker';
+      const words = t.text.trim().split(/\s+/).filter(Boolean).length;
+      if (!counts[spk]) counts[spk] = { words: 0, count: 0 };
+      counts[spk].words += words;
+      counts[spk].count += 1;
+    });
+
+    const totalWords = Object.values(counts).reduce((a, b) => a + b.words, 0) || 1;
+    return Object.entries(counts).map(([name, data], idx) => ({
+      name,
+      color: SPEAKER_PALETTE[idx % SPEAKER_PALETTE.length],
+      words: data.words,
+      count: data.count,
+      percentage: Math.round((data.words / totalWords) * 100),
+      durationEstSeconds: Math.round(data.words / 2.5)
+    }));
+  }, [currentMeeting?.transcript]);
+
+  // Color map for speaker badges
+  const speakerColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    speakerStats.forEach((s) => {
+      map[s.name] = s.color;
+    });
+    return map;
+  }, [speakerStats]);
 
   // Live Screen / Tab Preview Binding
   useEffect(() => {
@@ -118,10 +186,11 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
     }
     setIsPlayingMedia(false);
     setPlaybackCurrentTime(0);
+    setSelectedSpeakerFilter(null);
   }, [currentMeeting?.id]);
 
   const handleStart = () => {
-    const title = meetingTitle.trim() || `Meeting Sync — ${new Date().toLocaleDateString()}`;
+    const title = meetingTitle.trim() || `Strategy Sync — ${new Date().toLocaleDateString()}`;
     setSeconds(0);
     onStartMeeting(title, audioSource);
     setActiveTab('transcript');
@@ -144,16 +213,82 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
     });
   };
 
+  const handleAddManualNote = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentMeeting || !manualNoteText.trim()) return;
+
+    const timestamp = isRecording
+      ? seconds
+      : currentMeeting.durationSeconds || Math.floor(playbackCurrentTime) || 0;
+
+    onAddTranscript(currentMeeting.id, {
+      speaker: manualSpeakerName.trim() || 'Speaker',
+      text: manualNoteText.trim(),
+      timestamp
+    });
+
+    setManualNoteText('');
+  };
+
+  const handleReassignSpeaker = (entryId: string, newSpeaker: string) => {
+    if (!currentMeeting || !onUpdateTranscript) return;
+    const updated = currentMeeting.transcript.map((e) =>
+      e.id === entryId ? { ...e, speaker: newSpeaker } : e
+    );
+    onUpdateTranscript(currentMeeting.id, updated);
+    setEditingSpeakerEntryId(null);
+  };
+
+  const handleRenameSpeakerAcrossAll = () => {
+    if (!currentMeeting || !renameSpeakerModal || !onUpdateTranscript) return;
+    const { oldName, newName } = renameSpeakerModal;
+    if (!newName.trim() || oldName === newName) {
+      setRenameSpeakerModal(null);
+      return;
+    }
+
+    const updated = currentMeeting.transcript.map((e) =>
+      e.speaker === oldName ? { ...e, speaker: newName.trim() } : e
+    );
+    onUpdateTranscript(currentMeeting.id, updated);
+    setRenameSpeakerModal(null);
+  };
+
   const toggleActionItem = (id: string) => {
-    setActionItems(prev => prev.map(item => item.id === id ? { ...item, completed: !item.completed } : item));
+    setActionItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item))
+    );
+  };
+
+  const handleAddCustomActionItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newActionItemTask.trim()) return;
+    const newItem: MeetingActionItem = {
+      id: Date.now().toString(),
+      task: newActionItemTask.trim(),
+      owner: newActionItemOwner.trim() || 'Unassigned',
+      deadline: 'TBD',
+      completed: false
+    };
+    setActionItems((prev) => [...prev, newItem]);
+    setNewActionItemTask('');
+    setNewActionItemOwner('');
   };
 
   const copySummaryText = () => {
     if (!currentMeeting?.summary) return;
-    const text = `Executive Brief:\n${currentMeeting.summary.executiveBrief}\n\nKey Decisions:\n${currentMeeting.summary.keyDecisions.join('\n')}`;
+    const text = `Title: ${currentMeeting.summary.title}\nDate: ${currentMeeting.summary.date}\n\nExecutive Brief:\n${currentMeeting.summary.executiveBrief}\n\nKey Decisions:\n${currentMeeting.summary.keyDecisions.join('\n')}\n\nAction Items:\n${actionItems.map((a) => `- [${a.completed ? 'x' : ' '}] ${a.task} (${a.owner || 'Unassigned'})`).join('\n')}`;
     navigator.clipboard.writeText(text);
     setCopiedSummary(true);
     setTimeout(() => setCopiedSummary(false), 2000);
+  };
+
+  const copyEmailText = () => {
+    const text = currentMeeting?.summary?.followUpEmail || '';
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedEmail(true);
+    setTimeout(() => setCopiedEmail(false), 2000);
   };
 
   const formatTime = (secs: number) => {
@@ -235,6 +370,12 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
       }
     }
   };
+
+  const filteredTranscript = useMemo(() => {
+    if (!currentMeeting) return [];
+    if (!selectedSpeakerFilter) return currentMeeting.transcript;
+    return currentMeeting.transcript.filter((t) => t.speaker === selectedSpeakerFilter);
+  }, [currentMeeting?.transcript, selectedSpeakerFilter]);
 
   const showLiveMonitor = isRecording && liveStream && liveStream.getVideoTracks().length > 0;
   const showVideoPlayer = !isRecording && hasVideo && !!mediaUrl;
@@ -378,7 +519,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
           )}
         </div>
 
-        {/* Right: Meeting Actions */}
+        {/* Right: Meeting Actions & Summary Trigger */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {!isRecording ? (
             <button
@@ -398,7 +539,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                 title="Mark this moment as a key highlight"
               >
                 <Bookmark size={14} color="var(--accent-amber)" />
-                <span>Bookmark</span>
+                <span>Highlight</span>
               </button>
 
               <button
@@ -414,8 +555,8 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
 
           {currentMeeting && (
             <button
-              onClick={() => onSummarizeMeeting(currentMeeting.id)}
-              disabled={isSummarizing || currentMeeting.transcript.length === 0}
+              onClick={() => onSummarizeMeeting(currentMeeting.id, summaryStyle)}
+              disabled={isSummarizing}
               className="glass-button"
               style={{
                 background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(249, 115, 22, 0.2))',
@@ -424,9 +565,10 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                 padding: '7px 14px',
                 fontWeight: 600
               }}
+              title="Generate Local AI Summary with Executive Brief and Action Items"
             >
               <Sparkles size={14} />
-              <span>{isSummarizing ? 'Summarizing...' : 'AI Summary'}</span>
+              <span>{isSummarizing ? 'Generating...' : 'AI Summary'}</span>
             </button>
           )}
 
@@ -438,6 +580,17 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
               title="Download Markdown Minutes"
             >
               <Download size={14} />
+            </button>
+          )}
+
+          {currentMeeting?.summary && (
+            <button
+              onClick={() => window.print()}
+              className="glass-button"
+              style={{ padding: '7px 11px' }}
+              title="Print or Save PDF"
+            >
+              <Printer size={14} />
             </button>
           )}
         </div>
@@ -517,6 +670,93 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
         </div>
       )}
 
+      {/* MN-08: Speaker Diarization & Talk-Time Distribution Ribbon */}
+      {speakerStats.length > 0 && (
+        <div style={{
+          padding: '8px 14px',
+          background: 'rgba(11, 15, 25, 0.8)',
+          borderRadius: '10px',
+          border: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+          flexShrink: 0
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Users size={13} color="var(--accent-cyan)" />
+              <span style={{ fontWeight: 600, color: '#f8fafc' }}>Speaker Diarization & Talk Time</span>
+              {selectedSpeakerFilter && (
+                <button
+                  onClick={() => setSelectedSpeakerFilter(null)}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: 'none',
+                    color: 'var(--accent-amber)',
+                    borderRadius: '4px',
+                    padding: '1px 6px',
+                    fontSize: '0.68rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Clear Filter ({selectedSpeakerFilter}) ✕
+                </button>
+              )}
+            </div>
+
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
+              Click speaker chip to filter • Double-click to rename
+            </span>
+          </div>
+
+          {/* Segmented Talk Time Distribution Bar */}
+          <div style={{ display: 'flex', height: '6px', borderRadius: '3px', overflow: 'hidden', background: 'rgba(255, 255, 255, 0.05)' }}>
+            {speakerStats.map((s) => (
+              <div
+                key={s.name}
+                style={{
+                  width: `${s.percentage}%`,
+                  background: s.color,
+                  transition: 'width 0.3s ease'
+                }}
+                title={`${s.name}: ${s.percentage}% (${formatTime(s.durationEstSeconds)})`}
+              />
+            ))}
+          </div>
+
+          {/* Speaker Chips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' }}>
+            {speakerStats.map((s) => {
+              const isSelected = selectedSpeakerFilter === s.name;
+              return (
+                <button
+                  key={s.name}
+                  onClick={() => setSelectedSpeakerFilter(isSelected ? null : s.name)}
+                  onDoubleClick={() => setRenameSpeakerModal({ oldName: s.name, newName: s.name })}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    background: isSelected ? `${s.color}25` : 'rgba(255, 255, 255, 0.03)',
+                    border: `1px solid ${isSelected ? s.color : 'rgba(255, 255, 255, 0.08)'}`,
+                    cursor: 'pointer',
+                    color: '#f8fafc',
+                    fontSize: '0.72rem'
+                  }}
+                  title="Click to filter transcript, double-click to rename"
+                >
+                  <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: s.color }} />
+                  <span style={{ fontWeight: 600 }}>{s.name}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', opacity: 0.7 }}>{s.percentage}%</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Main Content Viewport: Split between Visual Video / Monitor and Transcript / AI Summary */}
       <div style={{
         flex: 1,
@@ -533,7 +773,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
             flexDirection: 'column',
             gap: '10px',
             minWidth: '420px',
-            maxWidth: '58%'
+            maxWidth: '56%'
           }}>
             {/* 1. Live Screen / Tab Recording Monitor */}
             {showLiveMonitor && (
@@ -548,7 +788,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                 flexDirection: 'column',
                 boxShadow: '0 0 30px rgba(244, 63, 94, 0.2)'
               }}>
-                {/* Live Monitor Header Badge */}
                 <div style={{
                   position: 'absolute',
                   top: '12px',
@@ -579,7 +818,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   </span>
                 </div>
 
-                {/* Live Video Feed */}
                 <video
                   ref={liveVideoRef}
                   autoPlay
@@ -593,7 +831,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   }}
                 />
 
-                {/* Bottom Audio VU Meter & Status */}
                 <div style={{
                   position: 'absolute',
                   bottom: '10px',
@@ -646,7 +883,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                 boxShadow: '0 8px 32px rgba(0, 242, 254, 0.2)',
                 position: 'relative'
               }}>
-                {/* Video Header Badge */}
                 <div style={{
                   padding: '8px 14px',
                   background: 'rgba(12, 16, 26, 0.9)',
@@ -671,7 +907,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                     </span>
                   </div>
 
-                  {/* Download Video Action */}
                   <a
                     href={mediaUrl}
                     download={`meeting-video-${currentMeeting?.id}.webm`}
@@ -684,7 +919,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   </a>
                 </div>
 
-                {/* Visual Video Surface */}
                 <div style={{ flex: 1, position: 'relative', background: '#020306', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <video
                     ref={videoPlayerRef}
@@ -701,7 +935,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                     onClick={togglePlayMedia}
                   />
 
-                  {/* Central Overlay Play Button when paused */}
                   {!isPlayingMedia && (
                     <button
                       onClick={togglePlayMedia}
@@ -727,7 +960,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   )}
                 </div>
 
-                {/* Video Playback Scrubber & Console Bar */}
+                {/* Scrubber & Controls */}
                 <div style={{
                   padding: '10px 14px',
                   background: 'rgba(10, 14, 24, 0.95)',
@@ -736,7 +969,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   flexDirection: 'column',
                   gap: '8px'
                 }}>
-                  {/* Seek Bar */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', minWidth: '40px' }}>
                       {formatTime(playbackCurrentTime)}
@@ -757,10 +989,8 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                     </span>
                   </div>
 
-                  {/* Lower Row Controls */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {/* Play/Pause */}
                       <button
                         onClick={togglePlayMedia}
                         className="glass-button primary"
@@ -770,7 +1000,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                         {isPlayingMedia ? <Pause size={14} /> : <Play size={14} style={{ marginLeft: '2px' }} />}
                       </button>
 
-                      {/* -10s / +10s Skips */}
                       <button
                         onClick={() => skipTime(-10)}
                         className="glass-button"
@@ -792,7 +1021,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                       </button>
                     </div>
 
-                    {/* Speed & Fullscreen */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <div style={{ display: 'flex', gap: '3px' }}>
                         {[1, 1.25, 1.5, 2].map((spd) => (
@@ -831,7 +1059,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
           </div>
         )}
 
-        {/* Right Pane: Interactive Transcript & AI Summary Tabs */}
+        {/* Right Pane: Interactive Transcript, AI Summary & Follow-Up Email */}
         <div style={{
           flex: 1,
           display: 'flex',
@@ -841,42 +1069,79 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
           overflow: 'hidden'
         }}>
           {/* Tabs Navigation */}
-          <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px', flexShrink: 0 }}>
-            <button
-              onClick={() => setActiveTab('transcript')}
-              className={`glass-button ${activeTab === 'transcript' ? 'primary' : ''}`}
-              style={{ padding: '5px 14px', fontSize: '0.8rem' }}
-            >
-              <FileText size={14} />
-              <span>Interactive Transcript ({currentMeeting?.transcript.length || 0})</span>
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setActiveTab('transcript')}
+                className={`glass-button ${activeTab === 'transcript' ? 'primary' : ''}`}
+                style={{ padding: '5px 12px', fontSize: '0.78rem' }}
+              >
+                <FileText size={13} />
+                <span>Transcript ({filteredTranscript.length})</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab('summary')}
-              className={`glass-button ${activeTab === 'summary' ? 'primary' : ''}`}
-              style={{ padding: '5px 14px', fontSize: '0.8rem' }}
-            >
-              <Sparkles size={14} />
-              <span>Executive Summary {currentMeeting?.summary ? '✅' : ''}</span>
-            </button>
+              <button
+                onClick={() => setActiveTab('summary')}
+                className={`glass-button ${activeTab === 'summary' ? 'primary' : ''}`}
+                style={{ padding: '5px 12px', fontSize: '0.78rem' }}
+              >
+                <Sparkles size={13} />
+                <span>Executive Summary {currentMeeting?.summary ? '✅' : ''}</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('email')}
+                className={`glass-button ${activeTab === 'email' ? 'primary' : ''}`}
+                style={{ padding: '5px 12px', fontSize: '0.78rem' }}
+              >
+                <Mail size={13} />
+                <span>Follow-Up Email</span>
+              </button>
+            </div>
+
+            {/* Summary Style Trigger Selector */}
+            {activeTab === 'summary' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Focus:</span>
+                {(['executive', 'detailed', 'action_items'] as const).map((style) => (
+                  <button
+                    key={style}
+                    onClick={() => {
+                      setSummaryStyle(style);
+                      if (currentMeeting) onSummarizeMeeting(currentMeeting.id, style);
+                    }}
+                    style={{
+                      background: summaryStyle === style ? 'rgba(245, 158, 11, 0.25)' : 'transparent',
+                      border: summaryStyle === style ? '1px solid var(--accent-amber)' : '1px solid transparent',
+                      color: summaryStyle === style ? '#fbbf24' : 'var(--text-muted)',
+                      borderRadius: '4px',
+                      padding: '2px 6px',
+                      fontSize: '0.68rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {style === 'executive' ? 'Brief' : style === 'detailed' ? 'Detailed' : 'Actions'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Tab Content */}
-          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            {activeTab === 'transcript' ? (
-              /* Click-to-Play Interactive Transcript */
+          {/* Tab 1: Interactive Transcript with MN-08 Speaker Badges */}
+          {activeTab === 'transcript' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden' }}>
               <div style={{
                 flex: 1,
                 overflowY: 'auto',
                 background: 'rgba(10, 13, 20, 0.65)',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '12px',
-                padding: '16px',
+                padding: '14px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '10px'
+                gap: '8px'
               }}>
-                {!currentMeeting || currentMeeting.transcript.length === 0 ? (
+                {!currentMeeting || filteredTranscript.length === 0 ? (
                   <div style={{
                     margin: 'auto',
                     textAlign: 'center',
@@ -884,17 +1149,18 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                     fontSize: '0.9rem',
                     maxWidth: '380px'
                   }}>
-                    <FileText size={42} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
+                    <FileText size={38} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
                     <p>Live speech recognition transcript will stream here during your meeting.</p>
-                    <p style={{ fontSize: '0.75rem', marginTop: '6px' }}>Click any timestamp on recorded entries to jump the video/audio directly to that point.</p>
+                    <p style={{ fontSize: '0.75rem', marginTop: '6px' }}>You can also type notes or tag speakers using the quick input bar below.</p>
                   </div>
                 ) : (
-                  currentMeeting.transcript.map((entry) => {
+                  filteredTranscript.map((entry) => {
                     const isNearCurrent = hasRecording && Math.abs(playbackCurrentTime - entry.timestamp) < 3;
+                    const speakerColor = speakerColorMap[entry.speaker] || 'var(--accent-cyan)';
+
                     return (
                       <div
                         key={entry.id}
-                        onClick={() => handleJumpToTimestamp(entry.timestamp)}
                         style={{
                           display: 'flex',
                           flexDirection: 'column',
@@ -913,15 +1179,88 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                               ? 'rgba(245, 158, 11, 0.4)'
                               : 'var(--border-subtle)'
                           }`,
-                          cursor: hasRecording ? 'pointer' : 'default',
                           transition: 'all 0.15s ease'
                         }}
-                        title={hasRecording ? 'Click to jump video to this moment' : ''}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 600, fontSize: '0.8rem', color: 'var(--accent-cyan)' }}>
-                            {entry.speaker}
-                          </span>
+                          {/* MN-08: Interactive Speaker Badge */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button
+                              onClick={() => setEditingSpeakerEntryId(editingSpeakerEntryId === entry.id ? null : entry.id)}
+                              style={{
+                                background: `${speakerColor}20`,
+                                border: `1px solid ${speakerColor}`,
+                                borderRadius: '4px',
+                                padding: '1px 7px',
+                                fontSize: '0.72rem',
+                                color: speakerColor,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                              title="Click to reassign speaker"
+                            >
+                              <span>{entry.speaker}</span>
+                              <ChevronDown size={10} />
+                            </button>
+
+                            {/* Speaker Reassignment Dropdown Popover */}
+                            {editingSpeakerEntryId === entry.id && (
+                              <div style={{
+                                position: 'absolute',
+                                background: '#121827',
+                                border: '1px solid var(--border-active)',
+                                borderRadius: '8px',
+                                padding: '6px',
+                                zIndex: 50,
+                                boxShadow: 'var(--shadow-lg)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '4px'
+                              }}>
+                                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', padding: '2px 4px' }}>Reassign speaker:</span>
+                                {speakerStats.map((s) => (
+                                  <button
+                                    key={s.name}
+                                    onClick={() => handleReassignSpeaker(entry.id, s.name)}
+                                    style={{
+                                      background: 'transparent',
+                                      border: 'none',
+                                      color: s.color,
+                                      padding: '3px 8px',
+                                      fontSize: '0.72rem',
+                                      textAlign: 'left',
+                                      cursor: 'pointer',
+                                      borderRadius: '4px'
+                                    }}
+                                  >
+                                    {s.name}
+                                  </button>
+                                ))}
+                                <button
+                                  onClick={() => {
+                                    const custom = prompt('Enter new speaker name:');
+                                    if (custom) handleReassignSpeaker(entry.id, custom);
+                                  }}
+                                  style={{
+                                    background: 'rgba(255, 255, 255, 0.05)',
+                                    border: 'none',
+                                    color: '#fff',
+                                    padding: '3px 8px',
+                                    fontSize: '0.72rem',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    borderRadius: '4px',
+                                    marginTop: '2px'
+                                  }}
+                                >
+                                  + New Speaker...
+                                </button>
+                              </div>
+                            )}
+                          </div>
 
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             {entry.bookmarked && (
@@ -929,13 +1268,20 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                                 ★ Highlight
                               </span>
                             )}
-                            <span style={{
-                              fontSize: '0.72rem',
-                              fontFamily: 'var(--font-mono)',
-                              color: isNearCurrent ? 'var(--accent-cyan)' : 'var(--text-muted)'
-                            }}>
+                            <button
+                              onClick={() => handleJumpToTimestamp(entry.timestamp)}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                fontSize: '0.72rem',
+                                fontFamily: 'var(--font-mono)',
+                                color: isNearCurrent ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                                cursor: 'pointer'
+                              }}
+                              title="Jump player to this timestamp"
+                            >
                               ▶ {formatTime(entry.timestamp)}
-                            </span>
+                            </button>
                           </div>
                         </div>
 
@@ -947,127 +1293,424 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   })
                 )}
               </div>
-            ) : (
-              /* Executive AI Summary & Action Items */
-              <div style={{
-                flex: 1,
-                overflowY: 'auto',
-                background: 'rgba(10, 13, 20, 0.65)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '12px',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '18px'
-              }}>
-                {currentMeeting?.summary ? (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
-                      <div>
-                        <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff' }}>
+
+              {/* Quick Note & Manual Transcript Entry Box */}
+              {currentMeeting && (
+                <form onSubmit={handleAddManualNote} style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                  <input
+                    type="text"
+                    placeholder="Speaker name"
+                    value={manualSpeakerName}
+                    onChange={(e) => setManualSpeakerName(e.target.value)}
+                    style={{
+                      width: '110px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '8px',
+                      padding: '6px 10px',
+                      color: '#fff',
+                      fontSize: '0.78rem',
+                      outline: 'none'
+                    }}
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="Type note, agenda point, or manual transcript line..."
+                    value={manualNoteText}
+                    onChange={(e) => setManualNoteText(e.target.value)}
+                    style={{
+                      flex: 1,
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '8px',
+                      padding: '6px 12px',
+                      color: '#fff',
+                      fontSize: '0.8rem',
+                      outline: 'none'
+                    }}
+                  />
+
+                  <button
+                    type="submit"
+                    className="glass-button primary"
+                    style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                  >
+                    <Plus size={13} />
+                    <span>Add Note</span>
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {/* Tab 2: Full Executive Summary, Decisions & Action Items */}
+          {activeTab === 'summary' && (
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              background: 'rgba(10, 13, 20, 0.65)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: '12px',
+              padding: '18px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px'
+            }}>
+              {currentMeeting?.summary ? (
+                <>
+                  {/* Summary Title & Tone Badge */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#fff' }}>
                           {currentMeeting.summary.title}
                         </h3>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          {currentMeeting.summary.date} • {formatTime(currentMeeting.summary.durationSeconds)} duration
-                        </div>
+                        {currentMeeting.summary.sentiment && (
+                          <span style={{
+                            fontSize: '0.68rem',
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            color: 'var(--accent-emerald)',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(16, 185, 129, 0.3)'
+                          }}>
+                            🌟 {currentMeeting.summary.sentiment}
+                          </span>
+                        )}
                       </div>
-
-                      <button
-                        onClick={copySummaryText}
-                        className="glass-button"
-                        style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-                      >
-                        {copiedSummary ? <Check size={13} color="var(--accent-emerald)" /> : <Copy size={13} />}
-                        <span>{copiedSummary ? 'Copied' : 'Copy'}</span>
-                      </button>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                        {currentMeeting.summary.date} • {formatTime(currentMeeting.summary.durationSeconds)} duration
+                      </div>
                     </div>
 
-                    {/* Executive Brief */}
-                    <div>
-                      <h4 style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                        Executive Brief
-                      </h4>
-                      <p style={{ fontSize: '0.9rem', color: '#e2e8f0', lineHeight: 1.6, background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-                        {currentMeeting.summary.executiveBrief}
-                      </p>
-                    </div>
-
-                    {/* Key Decisions */}
-                    {currentMeeting.summary.keyDecisions.length > 0 && (
-                      <div>
-                        <h4 style={{ fontSize: '0.85rem', color: 'var(--accent-amber)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                          Key Decisions & Strategic Takeaways
-                        </h4>
-                        <ul style={{ paddingLeft: '20px', margin: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {currentMeeting.summary.keyDecisions.map((decision, i) => (
-                            <li key={i} style={{ fontSize: '0.85rem', color: '#e2e8f0', lineHeight: 1.4 }}>
-                              {decision}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Interactive Action Items Checklist */}
-                    {actionItems.length > 0 && (
-                      <div>
-                        <h4 style={{ fontSize: '0.85rem', color: 'var(--accent-emerald)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                          Action Items & Next Steps ({actionItems.filter(a => a.completed).length}/{actionItems.length})
-                        </h4>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {actionItems.map((item) => (
-                            <div
-                              key={item.id}
-                              onClick={() => toggleActionItem(item.id)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                padding: '8px 12px',
-                                borderRadius: '8px',
-                                background: item.completed ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255, 255, 255, 0.03)',
-                                border: `1px solid ${item.completed ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-subtle)'}`,
-                                cursor: 'pointer'
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={item.completed}
-                                onChange={() => {}}
-                                style={{ cursor: 'pointer', accentColor: 'var(--accent-emerald)' }}
-                              />
-                              <div style={{ flex: 1, textDecoration: item.completed ? 'line-through' : 'none', color: item.completed ? 'var(--text-muted)' : '#f8fafc', fontSize: '0.85rem' }}>
-                                {item.task}
-                              </div>
-                              <span style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)' }}>
-                                {item.owner || 'Unassigned'}
-                              </span>
-                              <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber)', fontFamily: 'var(--font-mono)' }}>
-                                {item.deadline || 'TBD'}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div style={{
-                    margin: 'auto',
-                    textAlign: 'center',
-                    color: 'var(--text-muted)',
-                    fontSize: '0.9rem',
-                    maxWidth: '380px'
-                  }}>
-                    <Sparkles size={42} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
-                    <p>Click "AI Summary" above to generate structured meeting minutes from the transcript.</p>
+                    <button
+                      onClick={copySummaryText}
+                      className="glass-button"
+                      style={{ padding: '5px 10px', fontSize: '0.72rem' }}
+                    >
+                      {copiedSummary ? <Check size={12} color="var(--accent-emerald)" /> : <Copy size={12} />}
+                      <span>{copiedSummary ? 'Copied' : 'Copy'}</span>
+                    </button>
                   </div>
-                )}
+
+                  {/* Executive Brief */}
+                  <div>
+                    <h4 style={{ fontSize: '0.8rem', color: 'var(--accent-cyan)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                      Executive Brief
+                    </h4>
+                    <p style={{ fontSize: '0.88rem', color: '#e2e8f0', lineHeight: 1.55, background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', margin: 0 }}>
+                      {currentMeeting.summary.executiveBrief}
+                    </p>
+                  </div>
+
+                  {/* Key Decisions */}
+                  {currentMeeting.summary.keyDecisions.length > 0 && (
+                    <div>
+                      <h4 style={{ fontSize: '0.8rem', color: 'var(--accent-amber)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                        Key Decisions & Outcomes
+                      </h4>
+                      <ul style={{ paddingLeft: '18px', margin: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        {currentMeeting.summary.keyDecisions.map((decision, i) => (
+                          <li key={i} style={{ fontSize: '0.85rem', color: '#e2e8f0', lineHeight: 1.4 }}>
+                            {decision}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Interactive Action Items */}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <h4 style={{ fontSize: '0.8rem', color: 'var(--accent-emerald)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>
+                        Action Items ({actionItems.filter((a) => a.completed).length}/{actionItems.length})
+                      </h4>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {actionItems.map((item) => (
+                        <div
+                          key={item.id}
+                          onClick={() => toggleActionItem(item.id)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            background: item.completed ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+                            border: `1px solid ${item.completed ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-subtle)'}`,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={item.completed}
+                            onChange={() => {}}
+                            style={{ cursor: 'pointer', accentColor: 'var(--accent-emerald)' }}
+                          />
+                          <div style={{ flex: 1, textDecoration: item.completed ? 'line-through' : 'none', color: item.completed ? 'var(--text-muted)' : '#f8fafc', fontSize: '0.84rem' }}>
+                            {item.task}
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)' }}>
+                            {item.owner || 'Unassigned'}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber)', fontFamily: 'var(--font-mono)' }}>
+                            {item.deadline || 'TBD'}
+                          </span>
+                        </div>
+                      ))}
+
+                      {/* Add Custom Action Item */}
+                      <form onSubmit={handleAddCustomActionItem} style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                        <input
+                          type="text"
+                          placeholder="New action item task..."
+                          value={newActionItemTask}
+                          onChange={(e) => setNewActionItemTask(e.target.value)}
+                          style={{
+                            flex: 1,
+                            background: 'rgba(255, 255, 255, 0.04)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '6px',
+                            padding: '5px 10px',
+                            color: '#fff',
+                            fontSize: '0.78rem',
+                            outline: 'none'
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Assignee"
+                          value={newActionItemOwner}
+                          onChange={(e) => setNewActionItemOwner(e.target.value)}
+                          style={{
+                            width: '100px',
+                            background: 'rgba(255, 255, 255, 0.04)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '6px',
+                            padding: '5px 8px',
+                            color: '#fff',
+                            fontSize: '0.78rem',
+                            outline: 'none'
+                          }}
+                        />
+                        <button type="submit" className="glass-button" style={{ padding: '4px 10px', fontSize: '0.72rem' }}>
+                          <Plus size={12} />
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+
+                  {/* Speaker Contributions (MN-08) */}
+                  {currentMeeting.summary.speakerContributions && currentMeeting.summary.speakerContributions.length > 0 && (
+                    <div>
+                      <h4 style={{ fontSize: '0.8rem', color: 'var(--accent-violet)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                        Participant Contributions
+                      </h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {currentMeeting.summary.speakerContributions.map((sc, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              padding: '8px 12px',
+                              background: 'rgba(139, 92, 246, 0.06)',
+                              borderRadius: '8px',
+                              border: '1px solid rgba(139, 92, 246, 0.2)',
+                              fontSize: '0.82rem'
+                            }}
+                          >
+                            <span style={{ fontWeight: 600, color: 'var(--accent-violet)', marginRight: '6px' }}>
+                              {sc.speaker}:
+                            </span>
+                            <span style={{ color: '#e2e8f0' }}>{sc.contribution}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Key Topics Tags */}
+                  {currentMeeting.summary.keyTopics.length > 0 && (
+                    <div>
+                      <h4 style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                        Key Topics
+                      </h4>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {currentMeeting.summary.keyTopics.map((topic, i) => (
+                          <span
+                            key={i}
+                            style={{
+                              fontSize: '0.72rem',
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              color: '#cbd5e1',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border-subtle)'
+                            }}
+                          >
+                            #{topic}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{
+                  margin: 'auto',
+                  textAlign: 'center',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.9rem',
+                  maxWidth: '380px'
+                }}>
+                  <Sparkles size={38} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
+                  <p>Click "AI Summary" above to generate structured executive minutes, key decisions, and action items.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 3: Generated Follow-Up Email */}
+          {activeTab === 'email' && (
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              background: 'rgba(10, 13, 20, 0.65)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: '12px',
+              padding: '18px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Mail size={15} color="var(--accent-cyan)" />
+                  <span style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>Follow-Up Recap Email</span>
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    onClick={copyEmailText}
+                    className="glass-button"
+                    style={{ padding: '5px 12px', fontSize: '0.75rem' }}
+                  >
+                    {copiedEmail ? <Check size={12} color="var(--accent-emerald)" /> : <Copy size={12} />}
+                    <span>{copiedEmail ? 'Copied to Clipboard' : 'Copy Email'}</span>
+                  </button>
+
+                  {currentMeeting && (
+                    <button
+                      onClick={() => onSummarizeMeeting(currentMeeting.id, 'email')}
+                      disabled={isSummarizing}
+                      className="glass-button primary"
+                      style={{ padding: '5px 12px', fontSize: '0.75rem' }}
+                    >
+                      <Sparkles size={12} />
+                      <span>{isSummarizing ? 'Writing...' : 'Regenerate Email'}</span>
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
+
+              {currentMeeting?.summary?.followUpEmail ? (
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  fontSize: '0.86rem',
+                  color: '#e2e8f0',
+                  lineHeight: 1.6,
+                  whiteSpace: 'pre-wrap',
+                  fontFamily: 'var(--font-sans)'
+                }}>
+                  {currentMeeting.summary.followUpEmail}
+                </div>
+              ) : (
+                <div style={{
+                  margin: 'auto',
+                  textAlign: 'center',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.9rem',
+                  maxWidth: '380px'
+                }}>
+                  <Mail size={38} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
+                  <p>Click "AI Summary" or "Regenerate Email" above to automatically generate a team recap email draft.</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Rename Speaker Modal */}
+      {renameSpeakerModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 200
+        }}>
+          <div style={{
+            background: '#0d111d',
+            border: '1px solid var(--border-active)',
+            borderRadius: '14px',
+            padding: '20px',
+            width: '320px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#fff' }}>
+              Rename Speaker
+            </h4>
+            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Rename "{renameSpeakerModal.oldName}" across the entire transcript:
+            </p>
+            <input
+              type="text"
+              value={renameSpeakerModal.newName}
+              onChange={(e) => setRenameSpeakerModal({ ...renameSpeakerModal, newName: e.target.value })}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                color: '#fff',
+                fontSize: '0.85rem',
+                outline: 'none'
+              }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+              <button
+                onClick={() => setRenameSpeakerModal(null)}
+                className="glass-button"
+                style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRenameSpeakerAcrossAll}
+                className="glass-button primary"
+                style={{ padding: '6px 14px', fontSize: '0.75rem' }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Past Meetings History Drawer */}
       {showHistoryDrawer && (

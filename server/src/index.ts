@@ -243,6 +243,22 @@ wss.on('connection', (ws: WebSocket) => {
           break;
         }
 
+        case 'UPDATE_MEETING_TRANSCRIPT': {
+          const session = meetingService.updateTranscript(msg.meetingId, msg.entries);
+          if (session) {
+            send({ type: 'MEETING_UPDATED', session });
+          }
+          break;
+        }
+
+        case 'UPDATE_PARTICIPANTS': {
+          const session = meetingService.updateParticipants(msg.meetingId, msg.participants);
+          if (session) {
+            send({ type: 'MEETING_UPDATED', session });
+          }
+          break;
+        }
+
         case 'STOP_MEETING': {
           const session = meetingService.stopMeeting(msg.meetingId, msg.hasVideo);
           if (session) {
@@ -253,7 +269,7 @@ wss.on('connection', (ws: WebSocket) => {
 
         case 'SUMMARIZE_MEETING': {
           try {
-            const summary = await meetingService.generateSummary(msg.meetingId, msg.model);
+            const summary = await meetingService.generateSummary(msg.meetingId, msg.model, msg.style);
             if (summary) {
               send({ type: 'MEETING_SUMMARY_GENERATED', meetingId: msg.meetingId, summary });
             }
