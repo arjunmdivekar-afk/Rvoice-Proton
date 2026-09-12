@@ -63,6 +63,26 @@ export class AudioManager {
     return this.combinedStream || this.tabStream || this.micStream;
   }
 
+  public getAudioContext(): AudioContext | null {
+    return this.audioCtx;
+  }
+
+  public getMicStream(): MediaStream | null {
+    return this.micStream;
+  }
+
+  public getTabStream(): MediaStream | null {
+    return this.tabStream;
+  }
+
+  public getCombinedStream(): MediaStream | null {
+    return this.combinedStream;
+  }
+
+  public getAnalyser(): AnalyserNode | null {
+    return this.analyser;
+  }
+
   /**
    * Starts microphone recording with acoustic echo cancellation and noise suppression.
    */

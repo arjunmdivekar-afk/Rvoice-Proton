@@ -14,6 +14,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AudioManager } from './audio/audioManager';
 import { SpeechRecognizer } from './audio/speechRecognizer';
 import { SpeechSynthesizer } from './audio/speechSynthesizer';
+import { VoiceDiarizer } from './audio/voiceDiarizer';
 import { OrbState } from './canvas/ParticleOrb';
 import { CodeStudio } from './components/codestudio/CodeStudio';
 import { MeetingView } from './components/meeting/MeetingView';
@@ -69,6 +70,7 @@ export const App: React.FC = () => {
     }
   });
   const [isSummarizingMeeting, setIsSummarizingMeeting] = useState<boolean>(false);
+  const [activeMeetingSpeaker, setActiveMeetingSpeaker] = useState<{ id: string; name: string; color: string } | null>(null);
 
   useEffect(() => {
     currentMeetingRef.current = currentMeeting;
@@ -84,6 +86,7 @@ export const App: React.FC = () => {
   const audioManagerRef = useRef<AudioManager | null>(null);
   const recognizerRef = useRef<SpeechRecognizer | null>(null);
   const synthesizerRef = useRef<SpeechSynthesizer | null>(null);
+  const diarizerRef = useRef<VoiceDiarizer | null>(null);
 
   // Token speed calculation tracker
   const tokenCountRef = useRef<number>(0);
@@ -131,6 +134,36 @@ export const App: React.FC = () => {
       onError: (err) => console.warn('STT Error:', err)
     });
     recognizerRef.current = recognizer;
+
+    const diarizer = new VoiceDiarizer({
+      onActiveSpeakerChange: (speaker) => {
+        setActiveMeetingSpeaker({ id: speaker.id, name: speaker.name, color: speaker.color });
+      },
+      onNewSpeakerDiscovered: (speaker) => {
+        setActiveMeetingSpeaker({ id: speaker.id, name: speaker.name, color: speaker.color });
+        if (currentMeetingRef.current && currentMeetingRef.current.status === 'recording') {
+          const existing = currentMeetingRef.current.participants || [];
+          if (!existing.some((p) => p.name === speaker.name)) {
+            const updated = [
+              ...existing,
+              {
+                id: speaker.id,
+                name: speaker.name,
+                color: speaker.color,
+                talkTimeSeconds: 0,
+                talkPercentage: 0
+              }
+            ];
+            wsClientRef.current?.send({
+              type: 'UPDATE_PARTICIPANTS',
+              meetingId: currentMeetingRef.current.id,
+              participants: updated
+            });
+          }
+        }
+      }
+    });
+    diarizerRef.current = diarizer;
 
     const ws = new WSClient();
     wsClientRef.current = ws;
@@ -269,11 +302,18 @@ export const App: React.FC = () => {
       });
     } else if (currentMode === 'meeting' && currentMeeting && currentMeeting.status === 'recording') {
       const elapsedSeconds = Math.floor((Date.now() - currentMeeting.startedAt) / 1000);
+      const speaker = diarizerRef.current?.getCurrentSpeaker() || {
+        id: 'speaker_1',
+        name: 'Speaker 1',
+        color: '#00f2fe'
+      };
+
       wsClientRef.current?.send({
         type: 'ADD_MEETING_TRANSCRIPT',
         meetingId: currentMeeting.id,
         entry: {
-          speaker: 'Speaker',
+          speaker: speaker.name,
+          speakerId: speaker.id,
           text,
           timestamp: elapsedSeconds
         }
@@ -376,6 +416,20 @@ export const App: React.FC = () => {
       });
       if (stream) {
         setMeetingLiveStream(stream);
+        const ctx = audioManagerRef.current?.getAudioContext();
+        if (ctx) {
+          diarizerRef.current?.attach(
+            ctx,
+            stream,
+            audioManagerRef.current?.getMicStream(),
+            audioManagerRef.current?.getTabStream(),
+            currentMeetingRef.current?.participants
+          );
+          const initialSpeaker = diarizerRef.current?.getCurrentSpeaker();
+          if (initialSpeaker) {
+            setActiveMeetingSpeaker({ id: initialSpeaker.id, name: initialSpeaker.name, color: initialSpeaker.color });
+          }
+        }
       }
 
       recognizerRef.current?.start();
@@ -393,6 +447,8 @@ export const App: React.FC = () => {
   };
 
   const handleStopMeeting = async (meetingId: string) => {
+    diarizerRef.current?.detach();
+    setActiveMeetingSpeaker(null);
     const mediaResult = await audioManagerRef.current?.stopMeetingRecording();
     audioManagerRef.current?.stopAll();
     recognizerRef.current?.stop();
@@ -560,6 +616,9 @@ export const App: React.FC = () => {
             onExportMarkdown={handleExportMarkdown}
             audioLevel={audioLevel}
             liveStream={meetingLiveStream}
+            interimTranscript={interimTranscript}
+            activeSpeaker={activeMeetingSpeaker}
+            onRenameSpeaker={(oldName, newName) => diarizerRef.current?.renameSpeaker(oldName, newName)}
           />
         )}
       </main>

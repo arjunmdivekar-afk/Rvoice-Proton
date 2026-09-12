@@ -55,6 +55,9 @@ interface MeetingViewProps {
   onExportMarkdown: (meetingId: string) => void;
   audioLevel: number;
   liveStream?: MediaStream | null;
+  interimTranscript?: string;
+  activeSpeaker?: { id: string; name: string; color: string } | null;
+  onRenameSpeaker?: (oldName: string, newName: string) => void;
 }
 
 const SPEAKER_PALETTE = ['#00f2fe', '#10b981', '#8b5cf6', '#f59e0b', '#f43f5e', '#38bdf8', '#fb923c', '#a3e635'];
@@ -72,7 +75,10 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
   isSummarizing,
   onExportMarkdown,
   audioLevel,
-  liveStream
+  liveStream,
+  interimTranscript,
+  activeSpeaker,
+  onRenameSpeaker
 }) => {
   const [meetingTitle, setMeetingTitle] = useState('');
   const [audioSource, setAudioSource] = useState<'microphone' | 'tab' | 'both'>('tab');
@@ -96,6 +102,14 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
   const videoPlayerRef = useRef<HTMLVideoElement | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll transcript on new speech / live words
+  useEffect(() => {
+    if (currentMeeting?.status === 'recording') {
+      transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [currentMeeting?.transcript.length, interimTranscript]);
 
   // MN-08 Speaker Diarization & Tagging States
   const [selectedSpeakerFilter, setSelectedSpeakerFilter] = useState<string | null>(null);
@@ -251,6 +265,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
       e.speaker === oldName ? { ...e, speaker: newName.trim() } : e
     );
     onUpdateTranscript(currentMeeting.id, updated);
+    onRenameSpeaker?.(oldName, newName.trim());
     setRenameSpeakerModal(null);
   };
 
@@ -1292,6 +1307,84 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                     );
                   })
                 )}
+
+                {/* Real-Time Automatic Active Speaker Live Speech Indicator */}
+                {isRecording && (interimTranscript || (audioLevel > 0.02 && activeSpeaker)) && (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '5px',
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    background: 'rgba(15, 23, 42, 0.88)',
+                    border: `1.5px solid ${activeSpeaker?.color || '#00f2fe'}`,
+                    boxShadow: `0 0 16px ${activeSpeaker?.color || '#00f2fe'}33`,
+                    marginTop: '4px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{
+                          background: `${activeSpeaker?.color || '#00f2fe'}25`,
+                          border: `1px solid ${activeSpeaker?.color || '#00f2fe'}`,
+                          color: activeSpeaker?.color || '#00f2fe',
+                          borderRadius: '6px',
+                          padding: '2px 8px',
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          <span style={{
+                            width: '7px',
+                            height: '7px',
+                            borderRadius: '50%',
+                            background: activeSpeaker?.color || '#00f2fe',
+                            boxShadow: `0 0 8px ${activeSpeaker?.color || '#00f2fe'}`,
+                            display: 'inline-block'
+                          }} />
+                          {activeSpeaker?.name || 'Speaker 1'} (Speaking...)
+                        </span>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          Live • {formatTime(seconds)}
+                        </span>
+                      </div>
+
+                      {/* Mini Live Audio Equalizer Bars */}
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '14px' }}>
+                        <span style={{ width: '3px', height: `${Math.min(14, Math.max(4, audioLevel * 80))}px`, background: activeSpeaker?.color || '#00f2fe', borderRadius: '2px', transition: 'height 0.08s ease' }} />
+                        <span style={{ width: '3px', height: `${Math.min(14, Math.max(6, audioLevel * 120))}px`, background: activeSpeaker?.color || '#00f2fe', borderRadius: '2px', transition: 'height 0.08s ease' }} />
+                        <span style={{ width: '3px', height: `${Math.min(14, Math.max(3, audioLevel * 60))}px`, background: activeSpeaker?.color || '#00f2fe', borderRadius: '2px', transition: 'height 0.08s ease' }} />
+                      </div>
+                    </div>
+
+                    <p style={{
+                      margin: '2px 0 0',
+                      fontSize: '0.88rem',
+                      color: '#f8fafc',
+                      lineHeight: 1.4
+                    }}>
+                      {interimTranscript ? (
+                        <>
+                          <span>{interimTranscript}</span>
+                          <span style={{
+                            display: 'inline-block',
+                            width: '2px',
+                            height: '1.1em',
+                            background: activeSpeaker?.color || '#00f2fe',
+                            marginLeft: '4px',
+                            verticalAlign: 'middle'
+                          }} />
+                        </>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                          Listening to voice...
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                )}
+                <div ref={transcriptEndRef} />
               </div>
 
               {/* Quick Note & Manual Transcript Entry Box */}
