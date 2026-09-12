@@ -6,7 +6,8 @@ import {
   LMStudioStatus,
   MeetingSession,
   MeetingSummary,
-  MeetingTranscriptEntry
+  MeetingTranscriptEntry,
+  VoiceConversation
 } from '@shared/types';
 import { Bot, Code2, FileText, Mic, Settings, Sparkles } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
@@ -45,8 +46,26 @@ export const App: React.FC = () => {
   const [streamingAssistantText, setStreamingAssistantText] = useState<string>('');
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
 
-  // Meeting State
+  // Voice Conversations History (New Chat Feature)
+  const [voiceConversations, setVoiceConversations] = useState<VoiceConversation[]>(() => {
+    try {
+      const saved = localStorage.getItem('rvoice_voice_conversations');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Meeting State & History (Playback Feature)
   const [currentMeeting, setCurrentMeeting] = useState<MeetingSession | null>(null);
+  const [pastMeetings, setPastMeetings] = useState<MeetingSession[]>(() => {
+    try {
+      const saved = localStorage.getItem('rvoice_past_meetings');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [isSummarizingMeeting, setIsSummarizingMeeting] = useState<boolean>(false);
 
   // Settings Modal & Voices
@@ -66,7 +85,6 @@ export const App: React.FC = () => {
 
   // Initialize Services
   useEffect(() => {
-    // 1. Initialize Speech Synthesizer
     const synth = new SpeechSynthesizer((speaking) => {
       if (currentMode === 'voice') {
         setOrbState(speaking ? 'speaking' : 'idle');
@@ -75,12 +93,10 @@ export const App: React.FC = () => {
     synthesizerRef.current = synth;
     setAvailableVoices(synth.getVoices());
 
-    // 2. Initialize Audio Manager
     const audioMgr = new AudioManager({
       onVolumeChange: (vol) => setAudioLevel(vol),
       onFrequencies: (freqs) => setFrequencies(freqs),
       onSpeechStart: () => {
-        // Zero-Latency Barge-In: If user speaks while assistant is speaking, halt audio and abort stream!
         if (synth.isCurrentlySpeaking() || isStreaming) {
           console.log('⚡ [Barge-In] Speech detected! Halting assistant speech & stream.');
           synth.cancel();
@@ -98,7 +114,6 @@ export const App: React.FC = () => {
     });
     audioManagerRef.current = audioMgr;
 
-    // 3. Initialize Speech Recognizer
     const recognizer = new SpeechRecognizer({
       onInterimResult: (text) => {
         setInterimTranscript(text);
@@ -111,7 +126,6 @@ export const App: React.FC = () => {
     });
     recognizerRef.current = recognizer;
 
-    // 4. Initialize WebSocket Gateway Client
     const ws = new WSClient();
     wsClientRef.current = ws;
 
@@ -128,8 +142,7 @@ export const App: React.FC = () => {
       setStreamingAssistantText((prev) => prev + token);
     });
 
-    ws.on('ttsChunk', (text, _, isFinal) => {
-      // In Voice Mode only: speak the sentence chunk!
+    ws.on('ttsChunk', (text) => {
       if (currentMode === 'voice') {
         synth.speak(text);
       }
@@ -177,12 +190,26 @@ export const App: React.FC = () => {
     });
 
     ws.on('meetingUpdated', (session) => {
-      setCurrentMeeting(session);
+      setCurrentMeeting((prev) => ({
+        ...session,
+        audioUrl: prev?.audioUrl || session.audioUrl
+      }));
     });
 
     ws.on('meetingSummaryGenerated', (_, summary) => {
       setIsSummarizingMeeting(false);
-      setCurrentMeeting((prev) => prev ? { ...prev, summary } : null);
+      setCurrentMeeting((prev) => {
+        if (!prev) return null;
+        const updated = { ...prev, summary };
+        // Sync with past meetings list
+        setPastMeetings((list) => {
+          const filtered = list.filter(m => m.id !== updated.id);
+          const newList = [updated, ...filtered];
+          try { localStorage.setItem('rvoice_past_meetings', JSON.stringify(newList)); } catch {}
+          return newList;
+        });
+        return updated;
+      });
     });
 
     ws.connect();
@@ -222,7 +249,6 @@ export const App: React.FC = () => {
         model: lmStatus?.activeModel || undefined
       });
     } else if (currentMode === 'meeting' && currentMeeting && currentMeeting.status === 'recording') {
-      // In Meeting Mode: Add to meeting transcript
       const elapsedSeconds = Math.floor((Date.now() - currentMeeting.startedAt) / 1000);
       wsClientRef.current?.send({
         type: 'ADD_MEETING_TRANSCRIPT',
@@ -245,7 +271,7 @@ export const App: React.FC = () => {
       setOrbState('idle');
     } else {
       try {
-        await audioManagerRef.current?.startMicrophone();
+        await audioManagerRef.current?.startMicrophone(false);
         recognizerRef.current?.start();
         setIsMicActive(true);
         setOrbState('idle');
@@ -262,6 +288,39 @@ export const App: React.FC = () => {
     setIsStreaming(false);
     setStreamingAssistantText('');
     setOrbState('idle');
+  };
+
+  // Voice New Chat Management
+  const handleNewChat = () => {
+    if (voiceMessages.length > 0) {
+      const firstUserMsg = voiceMessages.find(m => m.role === 'user')?.content || 'Voice Conversation';
+      const newSession: VoiceConversation = {
+        id: Date.now().toString(),
+        title: firstUserMsg.slice(0, 34) + (firstUserMsg.length > 34 ? '...' : ''),
+        startedAt: voiceMessages[0].timestamp || Date.now(),
+        persona: assistantPersona,
+        messages: voiceMessages
+      };
+      const updated = [newSession, ...voiceConversations.filter(c => c.id !== newSession.id)];
+      setVoiceConversations(updated);
+      try { localStorage.setItem('rvoice_voice_conversations', JSON.stringify(updated)); } catch {}
+    }
+    setVoiceMessages([]);
+    setInterimTranscript('');
+    setStreamingAssistantText('');
+    synthesizerRef.current?.cancel();
+    setOrbState('idle');
+  };
+
+  const handleSelectConversation = (conv: VoiceConversation) => {
+    setVoiceMessages(conv.messages);
+    setAssistantPersona(conv.persona);
+  };
+
+  const handleDeleteConversation = (id: string) => {
+    const updated = voiceConversations.filter(c => c.id !== id);
+    setVoiceConversations(updated);
+    try { localStorage.setItem('rvoice_voice_conversations', JSON.stringify(updated)); } catch {}
   };
 
   // Code Studio Text Prompt Send
@@ -287,13 +346,13 @@ export const App: React.FC = () => {
     });
   };
 
-  // Meeting Handlers
+  // Meeting Handlers with Audio Recording & Replay
   const handleStartMeeting = async (title: string, source: 'microphone' | 'tab' | 'both') => {
     try {
       if (source === 'tab') {
-        await audioManagerRef.current?.startTabAudio();
+        await audioManagerRef.current?.startTabAudio(true);
       } else {
-        await audioManagerRef.current?.startMicrophone();
+        await audioManagerRef.current?.startMicrophone(true);
       }
       recognizerRef.current?.start();
       setIsMicActive(true);
@@ -309,11 +368,31 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleStopMeeting = (meetingId: string) => {
+  const handleStopMeeting = async (meetingId: string) => {
+    const audioUrl = await audioManagerRef.current?.stopMeetingRecording();
     audioManagerRef.current?.stopAll();
     recognizerRef.current?.stop();
     setIsMicActive(false);
     setOrbState('idle');
+
+    if (currentMeeting) {
+      const updatedMeeting: MeetingSession = {
+        ...currentMeeting,
+        status: 'completed',
+        endedAt: Date.now(),
+        durationSeconds: Math.floor((Date.now() - currentMeeting.startedAt) / 1000),
+        audioUrl: audioUrl || currentMeeting.audioUrl
+      };
+      setCurrentMeeting(updatedMeeting);
+
+      setPastMeetings((prev) => {
+        const filtered = prev.filter(m => m.id !== meetingId);
+        const updatedList = [updatedMeeting, ...filtered];
+        try { localStorage.setItem('rvoice_past_meetings', JSON.stringify(updatedList)); } catch {}
+        return updatedList;
+      });
+    }
+
     wsClientRef.current?.send({ type: 'STOP_MEETING', meetingId });
   };
 
@@ -413,6 +492,10 @@ export const App: React.FC = () => {
             interimTranscript={interimTranscript}
             streamingAssistantText={streamingAssistantText}
             onRepeatAudio={(txt) => synthesizerRef.current?.speak(txt)}
+            onNewChat={handleNewChat}
+            conversations={voiceConversations}
+            onSelectConversation={handleSelectConversation}
+            onDeleteConversation={handleDeleteConversation}
           />
         )}
 
@@ -428,6 +511,8 @@ export const App: React.FC = () => {
         {currentMode === 'meeting' && (
           <MeetingView
             currentMeeting={currentMeeting}
+            pastMeetings={pastMeetings}
+            onSelectPastMeeting={(m) => setCurrentMeeting(m)}
             onStartMeeting={handleStartMeeting}
             onStopMeeting={handleStopMeeting}
             onAddTranscript={(id, entry) => wsClientRef.current?.send({ type: 'ADD_MEETING_TRANSCRIPT', meetingId: id, entry })}

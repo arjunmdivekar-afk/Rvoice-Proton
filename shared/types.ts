@@ -86,8 +86,17 @@ export interface MeetingSession {
   durationSeconds: number;
   status: 'recording' | 'paused' | 'completed';
   audioSource: 'microphone' | 'tab' | 'both';
+  audioUrl?: string;
   transcript: MeetingTranscriptEntry[];
   summary?: MeetingSummary;
+}
+
+export interface VoiceConversation {
+  id: string;
+  title: string;
+  startedAt: number;
+  persona: AssistantPersona;
+  messages: ChatMessage[];
 }
 
 // WebSocket client-to-server messages

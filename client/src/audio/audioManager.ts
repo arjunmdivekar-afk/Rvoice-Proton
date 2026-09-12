@@ -1,4 +1,4 @@
-// Master Audio Manager: Capture (Mic & Display Media), VAD, Analyser, and Barge-In Control
+// Master Audio Manager: Capture (Mic & Display Media), Recording & Playback, VAD, Analyser, and Barge-In Control
 
 export interface AudioCallbacks {
   onSpeechStart?: () => void;
@@ -15,6 +15,10 @@ export class AudioManager {
   private compressor: DynamicsCompressorNode | null = null;
   private animFrameId: number | null = null;
   private callbacks: AudioCallbacks = {};
+
+  // Meeting Audio Recording
+  private mediaRecorder: MediaRecorder | null = null;
+  private recordedChunks: Blob[] = [];
 
   // VAD Parameters
   private isSpeaking = false;
@@ -48,7 +52,7 @@ export class AudioManager {
   /**
    * Starts microphone recording with acoustic echo cancellation and noise suppression.
    */
-  public async startMicrophone(): Promise<MediaStream> {
+  public async startMicrophone(recordToFile = false): Promise<MediaStream> {
     const ctx = await this.initAudioContext();
 
     this.micStream = await navigator.mediaDevices.getUserMedia({
@@ -61,13 +65,18 @@ export class AudioManager {
 
     this.connectSource(this.micStream, ctx);
     this.startAnalysisLoop();
+
+    if (recordToFile) {
+      this.startMediaRecorder(this.micStream);
+    }
+
     return this.micStream;
   }
 
   /**
    * Captures Tab / System Audio (e.g. Google Meet, Zoom Web, Teams) via getDisplayMedia.
    */
-  public async startTabAudio(): Promise<MediaStream> {
+  public async startTabAudio(recordToFile = false): Promise<MediaStream> {
     const ctx = await this.initAudioContext();
 
     this.tabStream = await navigator.mediaDevices.getDisplayMedia({
@@ -79,7 +88,6 @@ export class AudioManager {
       }
     });
 
-    // Ensure audio track exists
     const audioTracks = this.tabStream.getAudioTracks();
     if (audioTracks.length === 0) {
       throw new Error('No system/tab audio selected. Please check "Share tab audio" in the browser prompt.');
@@ -87,7 +95,67 @@ export class AudioManager {
 
     this.connectSource(this.tabStream, ctx);
     this.startAnalysisLoop();
+
+    if (recordToFile) {
+      this.startMediaRecorder(this.tabStream);
+    }
+
     return this.tabStream;
+  }
+
+  private startMediaRecorder(stream: MediaStream) {
+    try {
+      this.recordedChunks = [];
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : '';
+
+      this.mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      this.mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          this.recordedChunks.push(event.data);
+        }
+      };
+
+      this.mediaRecorder.start(1000); // 1-second chunks for resilience
+    } catch (err) {
+      console.warn('Failed to start MediaRecorder for meeting audio playback:', err);
+    }
+  }
+
+  /**
+   * Stops meeting recording and generates a playable Audio URL.
+   */
+  public async stopMeetingRecording(): Promise<string | null> {
+    return new Promise((resolve) => {
+      if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive') {
+        resolve(null);
+        return;
+      }
+
+      this.mediaRecorder.onstop = () => {
+        if (this.recordedChunks.length > 0) {
+          const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
+          const audioUrl = URL.createObjectURL(blob);
+          this.recordedChunks = [];
+          this.mediaRecorder = null;
+          resolve(audioUrl);
+        } else {
+          this.mediaRecorder = null;
+          resolve(null);
+        }
+      };
+
+      try {
+        this.mediaRecorder.stop();
+      } catch (e) {
+        this.mediaRecorder = null;
+        resolve(null);
+      }
+    });
   }
 
   private connectSource(stream: MediaStream, ctx: AudioContext) {
@@ -110,7 +178,6 @@ export class AudioManager {
 
     sourceNode.connect(this.compressor);
     this.compressor.connect(this.analyser);
-    // Notice: We do NOT connect analyser to ctx.destination to prevent feedback loops!
   }
 
   private startAnalysisLoop() {
@@ -125,18 +192,15 @@ export class AudioManager {
       this.analyser.getByteFrequencyData(dataArray);
       this.analyser.getFloatTimeDomainData(timeArray);
 
-      // Compute RMS volume
       let sum = 0;
       for (let i = 0; i < timeArray.length; i++) {
         sum += timeArray[i] * timeArray[i];
       }
       const rms = Math.sqrt(sum / timeArray.length);
 
-      // Volume callback
       this.callbacks.onVolumeChange?.(rms);
       this.callbacks.onFrequencies?.(dataArray);
 
-      // VAD logic
       if (rms > this.speechThreshold) {
         if (!this.isSpeaking) {
           this.isSpeaking = true;
@@ -170,6 +234,13 @@ export class AudioManager {
       this.silenceTimer = null;
     }
     this.isSpeaking = false;
+
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      try {
+        this.mediaRecorder.stop();
+      } catch (e) {}
+      this.mediaRecorder = null;
+    }
 
     if (this.micStream) {
       this.micStream.getTracks().forEach(t => t.stop());
