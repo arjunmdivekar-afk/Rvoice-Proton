@@ -27,9 +27,8 @@ export class WSClient {
       this.url = url;
     } else {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.hostname;
-      // In development Vite proxies /ws to 3001, or direct to port 3001
-      this.url = `${protocol}//${host}:3001/ws`;
+      // In development Vite proxies /ws to 3001, allowing mobile & WiFi devices on port 3344 to connect seamlessly
+      this.url = `${protocol}//${window.location.host}/ws`;
     }
   }
 

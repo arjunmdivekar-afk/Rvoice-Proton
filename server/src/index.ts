@@ -2,6 +2,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import http from 'http';
+import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ClientMessage, LatencyMetrics, ServerMessage } from '../../shared/types.js';
@@ -30,6 +31,28 @@ const meetingService = new MeetingService(lmStudioService);
 // REST API Endpoints
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now(), service: 'RVoice Proton Gateway' });
+});
+
+app.get('/api/network/info', (req, res) => {
+  const interfaces = os.networkInterfaces();
+  const addresses: string[] = [];
+
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] || []) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        addresses.push(iface.address);
+      }
+    }
+  }
+
+  const primaryIp = addresses[0] || 'localhost';
+  res.json({
+    primaryIp,
+    allIps: addresses,
+    port: 3344,
+    networkUrl: `http://${primaryIp}:3344`,
+    isHosted: true
+  });
 });
 
 app.get('/api/llm/status', async (req, res) => {
@@ -257,8 +280,8 @@ wss.on('connection', (ws: WebSocket) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`⚡ [RVoice Proton Gateway] Server running on http://localhost:${PORT}`);
-  console.log(`📡 [WebSocket] Listening on ws://localhost:${PORT}/ws`);
+server.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`⚡ [RVoice Proton Gateway] Server running on http://0.0.0.0:${PORT}`);
+  console.log(`📡 [WebSocket] Listening on ws://0.0.0.0:${PORT}/ws`);
   console.log(`🧠 [LLM Gateway] Active Provider: ${lmStudioService.getProvider()} @ ${lmStudioService.getActiveEndpoint()}`);
 });

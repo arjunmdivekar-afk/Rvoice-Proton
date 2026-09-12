@@ -86,6 +86,7 @@
 | **UI-02** | Live Latency & Performance Diagnostics HUD | ✅ `DONE` | High | Real-time display of STT latency, LM Studio/Ollama TTFT, tokens/second rate, TTS latency, and roundtrip ms. |
 | **UI-03** | LM Studio & Ollama Health & Model Picker | ✅ `DONE` | High | Dynamic model selector populated from `/v1/models` and `/api/tags`, endpoint URL tester, and status beacon. |
 | **UI-04** | Audio Device & Sensitivity Controls | ✅ `DONE` | High | Microphone selector, input gain meter, VAD threshold slider, and push-to-talk toggle. |
+| **UI-05** | WiFi & Device IP Hosting (Port 3344) | ✅ `DONE` | High | Host application on device's local network IP on port 3344 (`0.0.0.0:3344`), with automatic IP discovery and 1-click link copying for phone, tablet, and WiFi access. |
 
 ---
 
@@ -99,3 +100,4 @@
 | 2026-09-12 11:08 | Phase 1 & 2 & 3 | Built Core Workstation | Implemented Express/WS server, streaming adapter, 3D Particle Orb, Aurora Ribbon, VAD, Code Studio, and Meeting Notetaker. |
 | 2026-09-12 11:30 | VA-01 & UI-03 | Added Ollama Support | Added Ollama model provider with auto-model discovery (`/api/tags`) and endpoint configuration. |
 | 2026-09-12 11:44 | MN-07, MN-11, MN-12, VA-11 | Full Meeting Playback & New Chat | Implemented meeting audio recording (`MediaRecorder`), seekable playback bar with variable speed (1x-2x), Click-to-Play transcript sync, past meetings archive, and Voice Chat "+ New Chat" session manager. |
+| 2026-09-12 11:53 | UI-05 | WiFi Device IP Hosting (Port 3344) | Bound dev server to `0.0.0.0:3344`, added `/api/network/info` automatic local IP detection, and added WiFi hosting panel with 1-click URL copy in Settings modal. |

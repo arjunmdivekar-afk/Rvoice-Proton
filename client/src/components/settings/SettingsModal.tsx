@@ -1,5 +1,5 @@
-import { Cpu, Globe, RefreshCw, Sliders, Volume2, X } from 'lucide-react';
-import React, { useState } from 'react';
+import { Check, Copy, Cpu, Globe, RefreshCw, Share2, Sliders, Volume2, Wifi, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { LLMProvider, LLMProviderStatus } from '../../../../shared/types';
 
 interface SettingsModalProps {
@@ -13,6 +13,14 @@ interface SettingsModalProps {
   vadSensitivity: number;
   onUpdateVadSensitivity: (val: number) => void;
   onRefreshLLM: () => void;
+}
+
+interface NetworkInfo {
+  primaryIp: string;
+  allIps: string[];
+  port: number;
+  networkUrl: string;
+  isHosted: boolean;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -33,6 +41,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   );
   const [isTesting, setIsTesting] = useState(false);
 
+  // Network Hosting Info
+  const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
+  const [isCopiedNetworkUrl, setIsCopiedNetworkUrl] = useState(false);
+  const [isFetchingNetwork, setIsFetchingNetwork] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchNetworkInfo();
+    }
+  }, [isOpen]);
+
+  const fetchNetworkInfo = async () => {
+    setIsFetchingNetwork(true);
+    try {
+      const res = await fetch('/api/network/info');
+      if (res.ok) {
+        const data = await res.json();
+        setNetworkInfo(data);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch network info:', e);
+    } finally {
+      setIsFetchingNetwork(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   const handleSelectProvider = (newProvider: LLMProvider) => {
@@ -51,6 +85,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTimeout(() => setIsTesting(false), 800);
   };
 
+  const handleCopyNetworkUrl = () => {
+    if (!networkInfo?.networkUrl) return;
+    navigator.clipboard.writeText(networkInfo.networkUrl);
+    setIsCopiedNetworkUrl(true);
+    setTimeout(() => setIsCopiedNetworkUrl(false), 2000);
+  };
+
   return (
     <div style={{
       position: 'fixed',
@@ -66,8 +107,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       zIndex: 1000
     }}>
       <div style={{
-        width: '540px',
+        width: '560px',
         maxWidth: '92%',
+        maxHeight: '90vh',
+        overflowY: 'auto',
         background: '#0d111a',
         border: '1px solid var(--border-active)',
         borderRadius: '16px',
@@ -82,12 +125,86 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Sliders size={18} color="var(--accent-cyan)" />
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 600 }}>
-              System & Model Engine Settings
+              System & Network Settings
             </h2>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <X size={20} />
           </button>
+        </div>
+
+        {/* WiFi / Device IP Hosting on Port 3344 */}
+        <div style={{
+          padding: '16px',
+          borderRadius: '12px',
+          background: 'linear-gradient(135deg, rgba(0, 242, 254, 0.08), rgba(139, 92, 246, 0.08))',
+          border: '1px solid rgba(0, 242, 254, 0.3)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Wifi size={18} color="var(--accent-cyan)" />
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#fff' }}>
+                WiFi Network Hosting (Port 3344)
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div className="status-dot connected" />
+              <span style={{ fontSize: '0.72rem', color: '#34d399', fontWeight: 600 }}>
+                Live on Port 3344
+              </span>
+            </div>
+          </div>
+
+          <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            Anyone on this WiFi network (phone, tablet, or another computer) can access RVoice Proton directly:
+          </p>
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'rgba(5, 7, 12, 0.75)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: '8px',
+            padding: '8px 12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Globe size={15} color="var(--accent-cyan)" />
+              <span style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.88rem',
+                color: 'var(--accent-cyan)',
+                fontWeight: 600
+              }}>
+                {networkInfo?.networkUrl || 'Detecting network IP...'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                onClick={handleCopyNetworkUrl}
+                disabled={!networkInfo}
+                className="glass-button primary"
+                style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                title="Copy WiFi link to share with mobile or other devices"
+              >
+                {isCopiedNetworkUrl ? <Check size={14} color="#34d399" /> : <Copy size={14} />}
+                <span>{isCopiedNetworkUrl ? 'Copied Link!' : 'Copy WiFi URL'}</span>
+              </button>
+
+              <button
+                onClick={fetchNetworkInfo}
+                className="glass-button"
+                style={{ padding: '6px 10px', fontSize: '0.75rem' }}
+                title="Refresh Device IP"
+              >
+                <RefreshCw size={13} className={isFetchingNetwork ? 'spin' : ''} />
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Model Provider Selector */}
