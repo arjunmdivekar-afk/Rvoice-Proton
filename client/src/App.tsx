@@ -196,17 +196,30 @@ export const App: React.FC = () => {
     });
 
     ws.on('meetingUpdated', (session) => {
-      setCurrentMeeting((prev) => ({
-        ...session,
-        audioUrl: prev?.audioUrl || session.audioUrl
-      }));
+      setCurrentMeeting((prev) => {
+        const audioUrl = prev?.audioUrl || session.audioUrl;
+        const videoUrl = prev?.videoUrl || session.videoUrl;
+        const hasVideo = prev?.hasVideo !== undefined ? prev.hasVideo : session.hasVideo;
+        return {
+          ...session,
+          audioUrl,
+          videoUrl,
+          hasVideo
+        };
+      });
     });
 
     ws.on('meetingSummaryGenerated', (_, summary) => {
       setIsSummarizingMeeting(false);
       setCurrentMeeting((prev) => {
         if (!prev) return null;
-        const updated = { ...prev, summary };
+        const updated: MeetingSession = {
+          ...prev,
+          summary,
+          audioUrl: prev.audioUrl,
+          videoUrl: prev.videoUrl,
+          hasVideo: prev.hasVideo
+        };
         // Sync with past meetings list
         setPastMeetings((list) => {
           const filtered = list.filter(m => m.id !== updated.id);
@@ -388,15 +401,19 @@ export const App: React.FC = () => {
     setMeetingLiveStream(null);
 
     const activeMeeting = currentMeetingRef.current || currentMeeting;
+    const isTabOrBoth = activeMeeting?.audioSource === 'tab' || activeMeeting?.audioSource === 'both';
+    const hasVideo = mediaResult ? mediaResult.hasVideo : isTabOrBoth;
+    const mediaUrl = mediaResult?.mediaUrl || activeMeeting?.audioUrl || activeMeeting?.videoUrl;
+
     if (activeMeeting) {
       const updatedMeeting: MeetingSession = {
         ...activeMeeting,
         status: 'completed',
         endedAt: Date.now(),
         durationSeconds: Math.floor((Date.now() - activeMeeting.startedAt) / 1000),
-        audioUrl: mediaResult?.mediaUrl || activeMeeting.audioUrl,
-        videoUrl: mediaResult?.hasVideo ? mediaResult.mediaUrl : activeMeeting.videoUrl,
-        hasVideo: mediaResult ? mediaResult.hasVideo : activeMeeting.hasVideo
+        audioUrl: mediaUrl || activeMeeting.audioUrl,
+        videoUrl: hasVideo ? (mediaUrl || activeMeeting.videoUrl) : activeMeeting.videoUrl,
+        hasVideo
       };
       setCurrentMeeting(updatedMeeting);
 
@@ -408,7 +425,11 @@ export const App: React.FC = () => {
       });
     }
 
-    wsClientRef.current?.send({ type: 'STOP_MEETING', meetingId });
+    wsClientRef.current?.send({
+      type: 'STOP_MEETING',
+      meetingId,
+      hasVideo
+    });
   };
 
   const handleSummarizeMeeting = (meetingId: string) => {

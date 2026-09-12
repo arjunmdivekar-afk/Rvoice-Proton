@@ -101,14 +101,8 @@ export class AudioManager {
     const ctx = await this.initAudioContext();
 
     this.tabStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        displaySurface: 'browser'
-      } as any,
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false
-      }
+      video: true,
+      audio: true
     });
 
     // If user clicked Chrome's native "Stop sharing" button
@@ -125,15 +119,20 @@ export class AudioManager {
       try {
         const fallbackMic = await navigator.mediaDevices.getUserMedia({ audio: true });
         this.micStream = fallbackMic;
-        this.tabStream.addTrack(fallbackMic.getAudioTracks()[0]);
+        const micTrack = fallbackMic.getAudioTracks()[0];
+        if (micTrack) {
+          this.tabStream.addTrack(micTrack);
+        }
       } catch (err) {
         console.warn('Tab audio not shared and mic fallback unavailable:', err);
       }
     }
 
     this.hasRecordedVideo = this.tabStream.getVideoTracks().length > 0;
-    this.connectSource(this.tabStream, ctx);
-    this.startAnalysisLoop();
+    if (this.tabStream.getAudioTracks().length > 0) {
+      this.connectSource(this.tabStream, ctx);
+      this.startAnalysisLoop();
+    }
 
     if (recordToFile) {
       this.startMediaRecorder(this.tabStream, this.hasRecordedVideo);
@@ -163,14 +162,8 @@ export class AudioManager {
     // Source === 'both': Capture Tab Video + Tab Audio AND Local Microphone
     // 1. Capture Tab display media (screen/tab video + audio)
     this.tabStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        displaySurface: 'browser'
-      } as any,
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false
-      }
+      video: true,
+      audio: true
     });
 
     // 2. Capture Local Microphone
@@ -217,8 +210,10 @@ export class AudioManager {
     ]);
 
     this.hasRecordedVideo = videoTracks.length > 0;
-    this.connectSource(this.combinedStream, ctx);
-    this.startAnalysisLoop();
+    if (mixedAudioTracks.length > 0) {
+      this.connectSource(destination.stream, ctx);
+      this.startAnalysisLoop();
+    }
 
     this.startMediaRecorder(this.combinedStream, this.hasRecordedVideo);
     return this.combinedStream;
@@ -302,6 +297,9 @@ export class AudioManager {
   }
 
   private connectSource(stream: MediaStream, ctx: AudioContext) {
+    if (!stream || stream.getAudioTracks().length === 0) {
+      return;
+    }
     const sourceNode = ctx.createMediaStreamSource(stream);
 
     if (!this.analyser) {

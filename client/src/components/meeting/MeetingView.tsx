@@ -72,9 +72,10 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const isRecording = currentMeeting?.status === 'recording';
-  const hasVideo = !!(currentMeeting?.videoUrl || currentMeeting?.hasVideo);
+  const isTabOrBoth = currentMeeting?.audioSource === 'tab' || currentMeeting?.audioSource === 'both';
   const mediaUrl = currentMeeting?.videoUrl || currentMeeting?.audioUrl;
   const hasRecording = !!mediaUrl;
+  const hasVideo = !!(currentMeeting?.videoUrl || currentMeeting?.hasVideo || (isTabOrBoth && hasRecording));
 
   // Live Screen / Tab Preview Binding
   useEffect(() => {
@@ -1123,7 +1124,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                     <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#fff' }}>
                       {m.title}
                     </div>
-                    {m.hasVideo || m.videoUrl ? (
+                    {m.hasVideo || m.videoUrl || m.audioSource === 'tab' || m.audioSource === 'both' ? (
                       <span style={{ fontSize: '0.65rem', background: 'rgba(0, 242, 254, 0.15)', color: 'var(--accent-cyan)', padding: '1px 5px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
                         <Video size={10} /> Video
                       </span>

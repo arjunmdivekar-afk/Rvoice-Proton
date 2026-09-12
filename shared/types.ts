@@ -110,7 +110,7 @@ export type ClientMessage =
   | { type: 'SET_PROVIDER'; provider: LLMProvider; endpoint?: string }
   | { type: 'SET_MODEL'; model: string }
   | { type: 'START_MEETING'; title: string; audioSource: 'microphone' | 'tab' | 'both' }
-  | { type: 'STOP_MEETING'; meetingId: string }
+  | { type: 'STOP_MEETING'; meetingId: string; hasVideo?: boolean }
   | { type: 'ADD_MEETING_TRANSCRIPT'; meetingId: string; entry: Omit<MeetingTranscriptEntry, 'id'> }
   | { type: 'SUMMARIZE_MEETING'; meetingId: string; model?: string }
   | { type: 'CHECK_LM_STUDIO' }

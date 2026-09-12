@@ -87,13 +87,16 @@ export class MeetingService {
     return session;
   }
 
-  public stopMeeting(meetingId: string): MeetingSession | null {
+  public stopMeeting(meetingId: string, hasVideo?: boolean): MeetingSession | null {
     const session = this.sessions.get(meetingId);
     if (!session) return null;
 
     session.status = 'completed';
     session.endedAt = Date.now();
     session.durationSeconds = Math.floor((session.endedAt - session.startedAt) / 1000);
+    if (hasVideo !== undefined) {
+      session.hasVideo = hasVideo;
+    }
     this.saveToDisk();
     return session;
   }

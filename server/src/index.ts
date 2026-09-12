@@ -244,7 +244,7 @@ wss.on('connection', (ws: WebSocket) => {
         }
 
         case 'STOP_MEETING': {
-          const session = meetingService.stopMeeting(msg.meetingId);
+          const session = meetingService.stopMeeting(msg.meetingId, msg.hasVideo);
           if (session) {
             send({ type: 'MEETING_UPDATED', session });
           }
