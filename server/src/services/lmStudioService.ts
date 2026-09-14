@@ -4,7 +4,9 @@ import {
   LatencyMetrics,
   LLMProvider,
   LLMProviderStatus,
-  ModelInfo
+  ModelInfo,
+  VocabCard,
+  VocabEvaluation
 } from '../../../shared/types.js';
 
 export interface StreamCallbacks {
@@ -225,6 +227,17 @@ CRITICAL VOICE RULES:
 4. Tone: ${persona === 'executive' ? 'crisp, professional, and strategic' : persona === 'tutor' ? 'patient, illuminating, and friendly' : persona === 'creative' ? 'engaging, witty, and imaginative' : 'warm, approachable, and helpful'}.`;
     }
 
+    if (mode === 'english') {
+      return `You are RVoice Proton English Master, a friendly, elite AI English Language & Grammar Tutor.
+You are running in the dedicated English Learning & Grammar Studio.
+
+MANDATORY CONSTRAINTS:
+1. STRICT ENGLISH & GRAMMAR FOCUS ONLY: You must ONLY discuss English language learning, grammar rules, spelling, vocabulary, sentence structures, punctuation, idioms, pronunciation, and writing improvement.
+2. ABSOLUTELY NO CODING OR PROGRAMMING: If the user asks for code, programming solutions, math, or anything outside of English language learning and grammar, POLITELY AND FIRMLY DECLINE and redirect them: "I am your dedicated English & Grammar Tutor. I can only assist you with mastering English vocabulary, grammar, and sentence structure. Let's practice English instead!"
+3. INTERACTIVE GRAMMAR CORRECTION: If the user makes any grammatical errors, awkward phrasing, or spelling mistakes in their message, gently point it out, explain the grammar rule simply, and provide the polished natural sentence.
+4. TONE: Encouraging, articulate, engaging, and patient.`;
+    }
+
     if (mode === 'codestudio') {
       return `You are RVoice Proton Code Studio, a world-class principal software architect and software engineer.
 You are running in a dedicated text-only Code Studio environment (voice output is disabled).
@@ -353,5 +366,109 @@ You analyze meeting transcripts to extract high-leverage insights, decisions, an
       }
       this.activeControllers.clear();
     }
+  }
+
+  /**
+   * Evaluates user's submitted definition for a vocabulary flashcard using local LLM
+   */
+  public async evaluateVocabularyMeaning(
+    card: VocabCard,
+    userMeaning: string,
+    customModel?: string
+  ): Promise<VocabEvaluation> {
+    const modelToUse = customModel || this.activeModel || (this.provider === 'ollama' ? 'llama3:latest' : 'local-model');
+    const v1 = this.getV1Endpoint();
+
+    const prompt = `Target Word: "${card.word}" (${card.partOfSpeech})
+Correct Dictionary Definition: "${card.correctDefinition}"
+User's Submitted Meaning: "${userMeaning}"
+
+You are an expert English language teacher and lexicographer. Evaluate whether the user's explanation of the word is correct.
+Assess accuracy, conceptual understanding, and precision.
+
+Return ONLY a valid JSON object matching this schema (do NOT wrap with backticks or markdown, just raw JSON):
+{
+  "verdict": "correct" | "partially_correct" | "incorrect",
+  "score": <number from 0 to 100>,
+  "feedback": "<Clear 1-2 sentence feedback explaining what the user got right or why it was inaccurate>",
+  "betterPhrasing": "<A polished, natural phrasing of the definition>",
+  "exampleSentence": "<An engaging example sentence using the word>",
+  "synonyms": ["<synonym1>", "<synonym2>", "<synonym3>"]
+}`;
+
+    try {
+      const response = await fetch(`${v1}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: modelToUse,
+          messages: [
+            { role: 'system', content: 'You are an English vocabulary evaluation engine. You only output raw valid JSON.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.2,
+          max_tokens: 600
+        })
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as any;
+        const text = data.choices?.[0]?.message?.content || '';
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            cardId: card.id,
+            word: card.word,
+            userMeaning,
+            verdict: parsed.verdict || (parsed.score >= 75 ? 'correct' : parsed.score >= 45 ? 'partially_correct' : 'incorrect'),
+            score: typeof parsed.score === 'number' ? Math.max(0, Math.min(100, parsed.score)) : 75,
+            feedback: parsed.feedback || `Good effort with "${card.word}".`,
+            betterPhrasing: parsed.betterPhrasing || card.correctDefinition,
+            correctDefinition: card.correctDefinition,
+            exampleSentence: parsed.exampleSentence || card.exampleSentence,
+            synonyms: Array.isArray(parsed.synonyms) && parsed.synonyms.length > 0 ? parsed.synonyms : card.synonyms
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('LLM vocabulary evaluation failed, using fallback heuristic:', err);
+    }
+
+    // Fallback heuristic scoring if model is unreachable or response is non-JSON
+    const cleanUser = userMeaning.toLowerCase().trim();
+    const cleanDef = card.correctDefinition.toLowerCase();
+    const userWords = cleanUser.split(/\s+/).filter((w) => w.length > 3);
+    const defWords = cleanDef.split(/\s+/).filter((w) => w.length > 3);
+    const matches = userWords.filter((w) => defWords.some((d) => d.includes(w) || w.includes(d)));
+    const matchRatio = userWords.length > 0 ? matches.length / userWords.length : 0;
+
+    let verdict: 'correct' | 'partially_correct' | 'incorrect' = 'incorrect';
+    let score = 30;
+    if (matchRatio >= 0.35 || cleanDef.includes(cleanUser) || card.synonyms.some((s) => cleanUser.includes(s.toLowerCase()))) {
+      verdict = 'correct';
+      score = 92;
+    } else if (matchRatio > 0.1 || userWords.length >= 2) {
+      verdict = 'partially_correct';
+      score = 65;
+    }
+
+    return {
+      cardId: card.id,
+      word: card.word,
+      userMeaning,
+      verdict,
+      score,
+      feedback:
+        verdict === 'correct'
+          ? `Excellent! Your meaning aligns closely with "${card.word}".`
+          : verdict === 'partially_correct'
+          ? `You have the general idea of "${card.word}", but the precise definition has more nuance.`
+          : `Not quite. "${card.word}" means: ${card.correctDefinition}.`,
+      betterPhrasing: card.correctDefinition,
+      correctDefinition: card.correctDefinition,
+      exampleSentence: card.exampleSentence,
+      synonyms: card.synonyms
+    };
   }
 }

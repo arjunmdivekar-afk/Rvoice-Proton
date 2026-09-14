@@ -326,6 +326,12 @@ html, body {
   color: #c084fc;
 }
 
+.mode-tab.active.english {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(0, 242, 254, 0.2));
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+
 .mode-tab.active.meeting {
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(249, 115, 22, 0.25));
   border: 1px solid rgba(245, 158, 11, 0.3);

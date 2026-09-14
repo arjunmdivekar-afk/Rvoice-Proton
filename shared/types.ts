@@ -1,6 +1,6 @@
 // Shared Protocol Types for RVoice Proton
 
-export type AppMode = 'voice' | 'codestudio' | 'meeting';
+export type AppMode = 'voice' | 'english' | 'meeting' | 'codestudio';
 
 export type AssistantPersona = 'executive' | 'companion' | 'tutor' | 'creative';
 
@@ -35,12 +35,46 @@ export interface LatencyMetrics {
   totalRoundtripMs?: number;
 }
 
+export interface GrammarCorrection {
+  original: string;
+  corrected: string;
+  hasErrors: boolean;
+  explanation?: string;
+  rule?: string;
+}
+
+export interface VocabCard {
+  id: string;
+  word: string;
+  partOfSpeech: string;
+  phonetic?: string;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  correctDefinition: string;
+  exampleSentence: string;
+  synonyms: string[];
+  antonyms?: string[];
+}
+
+export interface VocabEvaluation {
+  cardId: string;
+  word: string;
+  userMeaning: string;
+  verdict: 'correct' | 'partially_correct' | 'incorrect';
+  score: number; // 0 - 100
+  feedback: string;
+  betterPhrasing?: string;
+  correctDefinition: string;
+  exampleSentence: string;
+  synonyms: string[];
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
   mode: AppMode;
+  grammarCorrection?: GrammarCorrection;
   codeSnippet?: {
     language: string;
     code: string;
@@ -127,6 +161,7 @@ export type ClientMessage =
   | { type: 'UPDATE_MEETING_TRANSCRIPT'; meetingId: string; entries: MeetingTranscriptEntry[] }
   | { type: 'UPDATE_PARTICIPANTS'; meetingId: string; participants: MeetingParticipant[] }
   | { type: 'SUMMARIZE_MEETING'; meetingId: string; model?: string; style?: 'executive' | 'detailed' | 'action_items' | 'email' }
+  | { type: 'EVALUATE_VOCAB'; card: VocabCard; userMeaning: string; model?: string }
   | { type: 'CHECK_LM_STUDIO' }
   | { type: 'CHECK_LLM_STATUS' };
 
@@ -141,4 +176,5 @@ export type ServerMessage =
   | { type: 'GENERATION_ABORTED'; messageId: string }
   | { type: 'MEETING_UPDATED'; session: MeetingSession }
   | { type: 'MEETING_SUMMARY_GENERATED'; meetingId: string; summary: MeetingSummary }
+  | { type: 'VOCAB_EVALUATED'; evaluation: VocabEvaluation }
   | { type: 'ERROR'; message: string };

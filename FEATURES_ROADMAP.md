@@ -33,21 +33,18 @@
 
 ---
 
-## 2. Dedicated Normal Text Chat & Code Studio (Text Only)
+## 2. AI English Learning, Grammar & Vocabulary Studio (Strict English & Grammar)
 
-> [!NOTE]
-> This mode is completely isolated from voice/TTS. Designed specifically for programming, code generation, refactoring, and text discussions without any audio distractions.
+> [!IMPORTANT]
+> **Strict English & Grammar Rule**: This mode is strictly constrained to English language mastery, grammar rules, spelling, vocabulary expansion, and writing practice. All coding or unrelated discussions are strictly barred and politely redirected to English learning.
 
 | ID | Feature | Status | Priority | Description |
 |---|---|---|---|---|
-| **CS-01** | Dedicated Code Studio & Text Chat Interface | ✅ `DONE` | High | Full-featured text chat with multi-language code canvas, line numbers, syntax highlighting, and copy buttons. |
-| **CS-02** | LM Studio & Ollama Coding Model Adapter | ✅ `DONE` | High | Optimized system prompts for coding (Qwen-Coder, DeepSeek-Coder, Llama-Code) in text-only mode. |
-| **CS-03** | Code Diff & Version History | 📋 `PLANNED` | Medium | Visual side-by-side diffs showing AI code changes and revision history. |
-| **CS-04** | Snippet Export & Download | ✅ `DONE` | Medium | Download generated code files directly (.py, .ts, .js, .html, .css, .json, .cpp). |
-| **CS-05** | In-Browser Code Runner & Live Sandbox | 💡 `SUGGESTED` | High | Execute Python (via Pyodide) and JavaScript/HTML directly in the browser with real-time console preview. |
-| **CS-06** | Multi-File Project Workspace & File Tree | 💡 `SUGGESTED` | High | Multi-tab code editor with project file sidebar for managing multi-file applications and codebases. |
-| **CS-07** | Git Commit & Pull Request Generator | 💡 `SUGGESTED` | Medium | One-click generation of conventional git commit messages and pull request descriptions from code changes. |
-| **CS-08** | AST Error Linter & 1-Click Auto-Fixer | 💡 `SUGGESTED` | Medium | Visual lint error badges with one-click AI code repair directly inside code blocks. |
+| **EN-01** | Strict English & Grammar AI Tutor Chat | ✅ `DONE` | High | Interactive AI English Tutor with strict guardrails: only discusses English grammar, syntax, vocabulary, and writing—refusing coding or unrelated topics. |
+| **EN-02** | Vocabulary Card Meaning Challenge with AI Correctness Scoring | ✅ `DONE` | High | Interactive flashcards showing words, phonetic transcriptions, and difficulty tiers. Users write what the word means in a text box, and local AI grades it (Correct, Partially Correct, Needs Work) with a 0-100 score and explanation. |
+| **EN-03** | Real-time Grammar & Spelling Auto-Correction Card | ✅ `DONE` | High | Automatically analyzes user queries for grammatical mistakes or unnatural phrasing, providing an encouraging breakdown of the grammar rule and the polished phrasing. |
+| **EN-04** | Audio Phonetic Pronunciation Engine | ✅ `DONE` | High | Built-in text-to-speech audio pronunciation for words, definitions, and sentences with natural English phonetics and playback buttons. |
+| **EN-05** | Vocabulary Mastery Decks & Streak Tracking | ✅ `DONE` | Medium | Curated multi-tier decks (Beginner, Intermediate, Advanced) with dynamic accuracy scoring, current streak, and best streak counters. |
 
 ---
 
@@ -132,3 +129,4 @@
 | 2026-09-12 20:37 | MN-08 & MN-09 | Summarizer & Diarization UI | Added multi-style meeting summaries (Brief, Detailed, Actions, Email), tone/sentiment chip, action items checklist, speaker contributions, and follow-up email. |
 | 2026-09-12 20:58 | MN-08 (Acoustic) | Auto Voice Diarization Engine | Built real-time autocorrelation pitch ($F_0$) and spectral centroid engine, auto-spawning speakers and displaying live speaking speech bubbles. |
 | 2026-09-14 16:35 | ROADMAP | Added Next-Gen Suggested Features | Added curated, high-impact features across Voice Memory, Code Sandbox, Meeting Intelligence, Audio DSP, and Local Data Security. |
+| 2026-09-14 16:53 | EN-01 to EN-05 | AI English Learning & Grammar Studio | Removed Code Studio and launched dedicated AI English Studio with Vocabulary Flashcards Meaning Challenge, AI correctness scoring, Strict English Tutor Chat, and Speech Synthesis Audio Pronunciation. |

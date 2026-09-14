@@ -1,6 +1,6 @@
 // WebSocket Gateway Client for RVoice Proton
 
-import { ClientMessage, LMStudioStatus, MeetingSession, MeetingSummary, ServerMessage } from '@shared/types';
+import { ClientMessage, LMStudioStatus, MeetingSession, MeetingSummary, ServerMessage, VocabEvaluation } from '@shared/types';
 
 export type WSEventMap = {
   connected: (clientId: string) => void;
@@ -12,6 +12,7 @@ export type WSEventMap = {
   generationAborted: (messageId: string) => void;
   meetingUpdated: (session: MeetingSession) => void;
   meetingSummaryGenerated: (meetingId: string, summary: MeetingSummary) => void;
+  vocabEvaluated: (evaluation: VocabEvaluation) => void;
   error: (message: string) => void;
 };
 
@@ -135,6 +136,9 @@ export class WSClient {
         break;
       case 'MEETING_SUMMARY_GENERATED':
         this.emit('meetingSummaryGenerated', msg.meetingId, msg.summary);
+        break;
+      case 'VOCAB_EVALUATED':
+        this.emit('vocabEvaluated', msg.evaluation);
         break;
       case 'ERROR':
         this.emit('error', msg.message);

@@ -279,6 +279,16 @@ wss.on('connection', (ws: WebSocket) => {
           break;
         }
 
+        case 'EVALUATE_VOCAB': {
+          try {
+            const evaluation = await lmStudioService.evaluateVocabularyMeaning(msg.card, msg.userMeaning, msg.model);
+            send({ type: 'VOCAB_EVALUATED', evaluation });
+          } catch (err: any) {
+            send({ type: 'ERROR', message: `Vocabulary evaluation failed: ${err.message}` });
+          }
+          break;
+        }
+
         default:
           break;
       }

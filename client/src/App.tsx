@@ -7,16 +7,18 @@ import {
   MeetingSession,
   MeetingSummary,
   MeetingTranscriptEntry,
+  VocabCard,
+  VocabEvaluation,
   VoiceConversation
 } from '@shared/types';
-import { Bot, Code2, FileText, Mic, Settings, Sparkles } from 'lucide-react';
+import { BookOpen, Bot, FileText, Mic, Settings, Sparkles } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { AudioManager } from './audio/audioManager';
 import { SpeechRecognizer } from './audio/speechRecognizer';
 import { SpeechSynthesizer } from './audio/speechSynthesizer';
 import { VoiceDiarizer } from './audio/voiceDiarizer';
 import { OrbState } from './canvas/ParticleOrb';
-import { CodeStudio } from './components/codestudio/CodeStudio';
+import { EnglishStudio } from './components/english/EnglishStudio';
 import { MeetingView } from './components/meeting/MeetingView';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { TelemetryHUD } from './components/telemetry/TelemetryHUD';
@@ -42,7 +44,9 @@ export const App: React.FC = () => {
 
   // Chat & Stream Messages
   const [voiceMessages, setVoiceMessages] = useState<ChatMessage[]>([]);
-  const [codeMessages, setCodeMessages] = useState<ChatMessage[]>([]);
+  const [englishMessages, setEnglishMessages] = useState<ChatMessage[]>([]);
+  const [latestVocabEvaluation, setLatestVocabEvaluation] = useState<VocabEvaluation | null>(null);
+  const [isEvaluatingVocab, setIsEvaluatingVocab] = useState<boolean>(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [streamingAssistantText, setStreamingAssistantText] = useState<string>('');
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
@@ -205,20 +209,25 @@ export const App: React.FC = () => {
           }
         ]);
         setStreamingAssistantText('');
-      } else if (currentMode === 'codestudio') {
-        setCodeMessages((prev) => [
+      } else if (currentMode === 'english') {
+        setEnglishMessages((prev) => [
           ...prev,
           {
             id: msgId,
             role: 'assistant',
             content: fullText,
             timestamp: Date.now(),
-            mode: 'codestudio',
+            mode: 'english',
             metrics: metricsData
           }
         ]);
         setStreamingAssistantText('');
       }
+    });
+
+    ws.on('vocabEvaluated', (evaluation) => {
+      setIsEvaluatingVocab(false);
+      setLatestVocabEvaluation(evaluation);
     });
 
     ws.on('generationAborted', () => {
@@ -242,10 +251,9 @@ export const App: React.FC = () => {
       });
     });
 
-    ws.on('meetingSummaryGenerated', (_, summary) => {
-      setIsSummarizingMeeting(false);
+    ws.on('meetingSummaryGenerated', (meetingId, summary) => {
       setCurrentMeeting((prev) => {
-        if (!prev) return null;
+        if (!prev || prev.id !== meetingId) return prev;
         const updated: MeetingSession = {
           ...prev,
           summary,
@@ -382,16 +390,16 @@ export const App: React.FC = () => {
     try { localStorage.setItem('rvoice_voice_conversations', JSON.stringify(updated)); } catch {}
   };
 
-  // Code Studio Text Prompt Send
-  const handleSendCodePrompt = (text: string) => {
+  // English Master Text Prompt Send (Strict English & Grammar Tutor)
+  const handleSendEnglishPrompt = (text: string) => {
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
       content: text,
       timestamp: Date.now(),
-      mode: 'codestudio'
+      mode: 'english'
     };
-    setCodeMessages((prev) => [...prev, userMsg]);
+    setEnglishMessages((prev) => [...prev, userMsg]);
     setIsStreaming(true);
     tokenCountRef.current = 0;
     streamStartTimeRef.current = Date.now();
@@ -400,7 +408,19 @@ export const App: React.FC = () => {
     wsClientRef.current?.send({
       type: 'TEXT_PROMPT',
       prompt: text,
-      mode: 'codestudio',
+      mode: 'english',
+      model: lmStatus?.activeModel || undefined
+    });
+  };
+
+  // Evaluate vocabulary card meaning with local AI
+  const handleEvaluateVocab = (card: VocabCard, userMeaning: string) => {
+    setIsEvaluatingVocab(true);
+    setLatestVocabEvaluation(null);
+    wsClientRef.current?.send({
+      type: 'EVALUATE_VOCAB',
+      card,
+      userMeaning,
       model: lmStatus?.activeModel || undefined
     });
   };
@@ -532,11 +552,11 @@ export const App: React.FC = () => {
           </button>
 
           <button
-            onClick={() => { setCurrentMode('codestudio'); }}
-            className={`mode-tab ${currentMode === 'codestudio' ? 'active codestudio' : ''}`}
+            onClick={() => { setCurrentMode('english'); setOrbState('idle'); }}
+            className={`mode-tab ${currentMode === 'english' ? 'active english' : ''}`}
           >
-            <Code2 size={15} />
-            <span>Code Studio (Text)</span>
+            <BookOpen size={15} />
+            <span>English Master AI</span>
           </button>
 
           <button
@@ -592,12 +612,15 @@ export const App: React.FC = () => {
           />
         )}
 
-        {currentMode === 'codestudio' && (
-          <CodeStudio
-            messages={codeMessages}
+        {currentMode === 'english' && (
+          <EnglishStudio
+            messages={englishMessages}
             streamingText={streamingAssistantText}
             isStreaming={isStreaming}
-            onSendPrompt={handleSendCodePrompt}
+            onSendPrompt={handleSendEnglishPrompt}
+            onEvaluateVocab={handleEvaluateVocab}
+            latestEvaluation={latestVocabEvaluation}
+            isEvaluatingVocab={isEvaluatingVocab}
           />
         )}
 
