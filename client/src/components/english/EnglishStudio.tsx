@@ -581,25 +581,45 @@ export const EnglishStudio: React.FC<EnglishStudioProps> = ({
                 </button>
               </div>
 
-              {/* Synonyms Preview Badges */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', alignSelf: 'center' }}>Synonyms:</span>
-                {activeCard.synonyms.map((syn) => (
-                  <span
-                    key={syn}
-                    style={{
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid var(--border-subtle)',
-                      borderRadius: '6px',
-                      padding: '2px 8px',
-                      fontSize: '0.72rem',
-                      color: 'var(--text-secondary)'
-                    }}
-                  >
-                    {syn}
+              {/* Synonyms (Revealed ONLY after user has submitted their answer to the AI) */}
+              {localEvaluation ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#34d399', alignSelf: 'center', fontWeight: 600 }}>
+                    Unlocked Synonyms:
                   </span>
-                ))}
-              </div>
+                  {activeCard.synonyms.map((syn) => (
+                    <span
+                      key={syn}
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.12)',
+                        border: '1px solid rgba(16, 185, 129, 0.35)',
+                        borderRadius: '6px',
+                        padding: '2px 8px',
+                        fontSize: '0.72rem',
+                        color: '#34d399'
+                      }}
+                    >
+                      {syn}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    color: 'var(--text-muted)',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px dashed var(--border-subtle)',
+                    borderRadius: '6px',
+                    padding: '3px 8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    🔒 Synonyms unlocked after submitting your definition
+                  </span>
+                </div>
+              )}
 
               {/* Card Controls: Next & Shuffle */}
               <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
@@ -826,6 +846,33 @@ export const EnglishStudio: React.FC<EnglishStudioProps> = ({
                   }}>
                     &quot;{localEvaluation.exampleSentence}&quot;
                   </div>
+
+                  {/* Synonyms & Antonyms (Revealed after answer is given) */}
+                  {((localEvaluation.synonyms && localEvaluation.synonyms.length > 0) || (activeCard.synonyms && activeCard.synonyms.length > 0)) && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        Key Synonyms:
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {(localEvaluation.synonyms || activeCard.synonyms).map((syn) => (
+                          <span
+                            key={syn}
+                            style={{
+                              background: 'rgba(52, 211, 153, 0.12)',
+                              border: '1px solid rgba(52, 211, 153, 0.35)',
+                              borderRadius: '6px',
+                              padding: '3px 10px',
+                              fontSize: '0.75rem',
+                              color: '#34d399',
+                              fontWeight: 500
+                            }}
+                          >
+                            {syn}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Next Challenge Button */}
