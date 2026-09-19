@@ -1,13 +1,18 @@
 {
   "name": "rvoice-proton",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Next-Generation Voice AI Assistant & Meeting Intelligence Platform powered by LM Studio",
-  "private": true,
+  "bin": {
+    "Proton": "./bin/proton.js",
+    "proton": "./bin/proton.js"
+  },
   "scripts": {
     "dev": "npx --yes concurrently \"npm run dev --workspace=server\" \"npm run dev --workspace=client\"",
     "build": "npm run build --workspace=server && npm run build --workspace=client",
     "server": "npm run dev --workspace=server",
-    "client": "npm run dev --workspace=client"
+    "client": "npm run dev --workspace=client",
+    "Proton": "node ./bin/proton.js",
+    "proton": "node ./bin/proton.js"
   },
   "workspaces": [
     "server",

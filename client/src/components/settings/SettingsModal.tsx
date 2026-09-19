@@ -1,4 +1,4 @@
-import { Check, Copy, Cpu, Globe, RefreshCw, Share2, Sliders, Volume2, Wifi, X } from 'lucide-react';
+import { AlertCircle, Check, CheckCircle2, Copy, Cpu, DownloadCloud, GitCommit, Globe, RefreshCw, Share2, Sliders, Volume2, Wifi, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { LLMProvider, LLMProviderStatus } from '../../../../shared/types';
 
@@ -23,6 +23,24 @@ interface NetworkInfo {
   isHosted: boolean;
 }
 
+interface CommitItem {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
+interface UpdateStatus {
+  isUpToDate: boolean;
+  currentSha?: string;
+  latestSha?: string;
+  message?: string;
+  error?: string;
+  fallbackMessage?: string;
+  newCommits?: CommitItem[];
+  checkedAt?: string;
+}
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
@@ -45,6 +63,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
   const [isCopiedNetworkUrl, setIsCopiedNetworkUrl] = useState(false);
   const [isFetchingNetwork, setIsFetchingNetwork] = useState(false);
+
+  // GitHub App Updates Info
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
+  const [updateFeedback, setUpdateFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -90,6 +114,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     navigator.clipboard.writeText(networkInfo.networkUrl);
     setIsCopiedNetworkUrl(true);
     setTimeout(() => setIsCopiedNetworkUrl(false), 2000);
+  };
+
+  const handleCheckForUpdates = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateFeedback(null);
+    try {
+      const res = await fetch('/api/system/check-updates');
+      if (res.ok) {
+        const data = await res.json();
+        setUpdateStatus(data);
+      } else {
+        setUpdateStatus({
+          isUpToDate: true,
+          error: 'Could not fetch GitHub updates'
+        });
+      }
+    } catch (err: any) {
+      setUpdateStatus({
+        isUpToDate: true,
+        error: err.message || 'Network error'
+      });
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleApplyUpdate = async () => {
+    setIsApplyingUpdate(true);
+    setUpdateFeedback(null);
+    try {
+      const res = await fetch('/api/system/update', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setUpdateFeedback('Update installed successfully! Please restart server or refresh page.');
+        setUpdateStatus({
+          isUpToDate: true,
+          message: 'Your RVoice Proton is up to date'
+        });
+      } else {
+        setUpdateFeedback(`Update failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err: any) {
+      setUpdateFeedback(`Update failed: ${err.message}`);
+    } finally {
+      setIsApplyingUpdate(false);
+    }
   };
 
   return (
@@ -343,6 +413,141 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
             Lower threshold = higher sensitivity for quiet voices. Higher threshold = filters room background noise.
           </span>
+        </div>
+
+        {/* GitHub Updates Center */}
+        <div style={{
+          padding: '16px',
+          borderRadius: '12px',
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <DownloadCloud size={18} color="var(--accent-cyan)" />
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#fff' }}>
+                App Updates & GitHub Sync
+              </span>
+            </div>
+            <button
+              onClick={handleCheckForUpdates}
+              disabled={isCheckingUpdate || isApplyingUpdate}
+              className="glass-button"
+              style={{ padding: '6px 12px', fontSize: '0.75rem', gap: '6px' }}
+              title="Check GitHub for latest commits and releases"
+            >
+              <RefreshCw size={13} className={isCheckingUpdate ? 'spin' : ''} />
+              <span>{isCheckingUpdate ? 'Checking GitHub...' : 'Check for Updates'}</span>
+            </button>
+          </div>
+
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            Repository: <a href="https://github.com/arjunmdivekar-afk/Rvoice-Proton" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'none' }}>arjunmdivekar-afk/Rvoice-Proton</a> (main branch)
+          </div>
+
+          {/* Up to Date State */}
+          {updateStatus && updateStatus.isUpToDate && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              background: 'rgba(52, 211, 153, 0.1)',
+              border: '1px solid rgba(52, 211, 153, 0.3)'
+            }}>
+              <CheckCircle2 size={18} color="#34d399" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#34d399' }}>
+                  Your RVoice Proton is up to date!
+                </span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  v2.0.0 (Commit: {updateStatus.currentSha || 'Latest'}) {updateStatus.checkedAt ? `• Checked at ${new Date(updateStatus.checkedAt).toLocaleTimeString()}` : ''}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Update Available State */}
+          {updateStatus && !updateStatus.isUpToDate && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              padding: '12px',
+              borderRadius: '8px',
+              background: 'rgba(245, 158, 11, 0.08)',
+              border: '1px solid rgba(245, 158, 11, 0.3)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertCircle size={16} color="#f59e0b" />
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#fbbf24' }}>
+                    New Updates Available on GitHub!
+                  </span>
+                </div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  {updateStatus.currentSha} → {updateStatus.latestSha}
+                </span>
+              </div>
+
+              {updateStatus.newCommits && updateStatus.newCommits.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                    What's New in this update:
+                  </span>
+                  <div style={{
+                    maxHeight: '120px',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    background: 'rgba(0, 0, 0, 0.25)',
+                    padding: '8px',
+                    borderRadius: '6px'
+                  }}>
+                    {updateStatus.newCommits.map((c, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.74rem' }}>
+                        <GitCommit size={13} color="var(--accent-cyan)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                        <span style={{ color: '#fff', flex: 1, wordBreak: 'break-word' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', marginRight: '6px' }}>
+                            [{c.sha}]
+                          </span>
+                          {c.message}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={handleApplyUpdate}
+                disabled={isApplyingUpdate}
+                className="glass-button primary"
+                style={{ padding: '8px 14px', fontSize: '0.8rem', alignSelf: 'flex-start', gap: '6px' }}
+              >
+                <DownloadCloud size={14} className={isApplyingUpdate ? 'spin' : ''} />
+                <span>{isApplyingUpdate ? 'Pulling updates from GitHub...' : 'Update RVoice Proton Now'}</span>
+              </button>
+            </div>
+          )}
+
+          {updateFeedback && (
+            <div style={{
+              fontSize: '0.75rem',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              background: 'rgba(0, 242, 254, 0.08)',
+              border: '1px solid rgba(0, 242, 254, 0.25)',
+              color: '#38bdf8'
+            }}>
+              {updateFeedback}
+            </div>
+          )}
         </div>
 
         {/* Footer */}

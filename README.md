@@ -1,7 +1,7 @@
 # ⚛️ RVoice Proton
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.0.0-cyan?style=for-the-badge" alt="Version 1.0.0" />
+  <img src="https://img.shields.io/badge/Version-2.0.0-cyan?style=for-the-badge" alt="Version 2.0.0" />
   <img src="https://img.shields.io/badge/Node.js-18%2B-green?style=for-the-badge&logo=node.js" alt="Node.js 18+" />
   <img src="https://img.shields.io/badge/React-18-blue?style=for-the-badge&logo=react" alt="React 18" />
   <img src="https://img.shields.io/badge/Vite-6.0-purple?style=for-the-badge&logo=vite" alt="Vite 6" />

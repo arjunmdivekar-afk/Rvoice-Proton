@@ -115,7 +115,16 @@
 
 ---
 
-## 7. Execution Changelog & Audit Trail
+## 7. CLI & System Operations (`SYS` / `CLI`)
+
+| ID | Feature | Status | Priority | Description |
+|---|---|---|---|---|
+| **CLI-01** | Global CLI Launcher (`Proton --Rvoice`) | ✅ `DONE` | Critical | Terminal command `Proton --Rvoice` (or `proton --rvoice`) to start backend, client, and automatically launch web browser. |
+| **SYS-01** | In-App GitHub Update Center & Sync | ✅ `DONE` | Critical | In Settings modal: checks latest GitHub commits, displays changelog diff, and provides 1-click update button. |
+
+---
+
+## 8. Execution Changelog & Audit Trail
 
 | Date / Timestamp | Feature ID | Action / Change | Details |
 |---|---|---|---|
@@ -130,3 +139,5 @@
 | 2026-09-12 20:58 | MN-08 (Acoustic) | Auto Voice Diarization Engine | Built real-time autocorrelation pitch ($F_0$) and spectral centroid engine, auto-spawning speakers and displaying live speaking speech bubbles. |
 | 2026-09-14 16:35 | ROADMAP | Added Next-Gen Suggested Features | Added curated, high-impact features across Voice Memory, Code Sandbox, Meeting Intelligence, Audio DSP, and Local Data Security. |
 | 2026-09-14 16:53 | EN-01 to EN-05 | AI English Learning & Grammar Studio | Removed Code Studio and launched dedicated AI English Studio with Vocabulary Flashcards Meaning Challenge, AI correctness scoring, Strict English Tutor Chat, and Speech Synthesis Audio Pronunciation. |
+| 2026-09-14 17:01 | CLI-01 & SYS-01 | CLI Launcher & In-App GitHub Update Center | Added global `Proton --Rvoice` launcher script with auto-browser launch, plus Settings modal GitHub commit update checker and 1-click updater. |
+
